@@ -22,6 +22,10 @@ export interface SpeciesInstance {
 
   // Visual DNA — per-instance random variation for procedural rendering
   phenotypeSeed: number;
+
+  // Debug: last-tick energy flow (written by growth system, read by inspector)
+  _dbgPhotosynthesis: number;
+  _dbgRespiration: number;
 }
 
 export interface GridCell {
@@ -89,16 +93,18 @@ export function createPlantInstance(genomeId: string): SpeciesInstance {
     genomeId,
     age: 0,
     health: 1.0,
-    energy: 10.0,       // Small sugar reserve from seed endosperm
-    biomass: 0.05,      // 50 grams — a germinated seed
+    energy: 50.0,       // Starch reserve from seed endosperm
+    biomass: 0.02,      // 20 grams — a germinated seed
     height: 0.05,       // 5 cm seedling
     trunkRadius: 0.002, // 2 mm stem
     rootDepth: 0.05,    // 5 cm radicle
-    leafArea: 0.001,    // Tiny cotyledons
+    leafArea: 0.005,    // Cotyledons — small but functional
     branchCount: 0,
     flowering: 0,
     fruit: 0,
     phenotypeSeed: Math.random(),
+    _dbgPhotosynthesis: 0,
+    _dbgRespiration: 0,
   };
 }
 

@@ -36,7 +36,7 @@ import { type SimulationState, type SpeciesInstance, type GridCell } from '../st
 import { type StatKey } from '../data/traits';
 
 // ── Photosynthesis ──────────────────────────────────────────────
-const PHOTO_BASE = 0.6;          // Glucose produced per m² leaf at full sun, per tick
+const PHOTO_BASE = 0.8;          // Glucose produced per m² leaf at full sun, per tick
 const STOMATA_THRESHOLD = 0.05;  // Below this water uptake, stomata close fully
 
 // ── Uptake ──────────────────────────────────────────────────────
@@ -44,10 +44,10 @@ const WATER_UPTAKE_RATE = 0.08;  // Water units per meter root depth per tick
 const NUTRIENT_UPTAKE_RATE = 0.005; // Fraction of soil nutrient absorbed per meter root
 
 // ── Respiration / Maintenance ───────────────────────────────────
-const RESPIRATION_RATE = 0.15;   // Energy cost per kg biomass per tick (cellular respiration)
+const RESPIRATION_RATE = 0.02;   // Energy cost per kg biomass per tick (cellular respiration)
 
 // ── Growth ──────────────────────────────────────────────────────
-const GROWTH_THRESHOLD = 3.0;    // Minimum energy surplus before meristems activate
+const GROWTH_THRESHOLD = 5.0;    // Minimum energy surplus before meristems activate
 const GROWTH_EFFICIENCY = 0.5;   // Fraction of invested energy that becomes biomass
 const MAX_ENERGY = 80;           // Sugar storage cap (vacuole limit)
 
@@ -152,6 +152,10 @@ function simulatePlant(
 
   // Cellular respiration: every living cell burns sugar to stay alive
   const maintenanceCost = plant.biomass * RESPIRATION_RATE;
+
+  // Debug: record energy flow for inspector
+  plant._dbgPhotosynthesis = glucoseProduced;
+  plant._dbgRespiration = maintenanceCost;
 
   // Energy balance
   plant.energy += glucoseProduced - maintenanceCost;

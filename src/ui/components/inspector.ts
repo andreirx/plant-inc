@@ -97,6 +97,11 @@ export function initInspector(layout: QuadrantElements): void {
           })
           .join(', ');
 
+        // Energy flow display
+        const netEnergy = p._dbgPhotosynthesis - p._dbgRespiration;
+        const netSign = netEnergy >= 0 ? '+' : '';
+        const netColor = netEnergy >= 0 ? '#4caf50' : '#f44336';
+
         lines.push(
           '<hr style="border-color:#444;margin:4px 0">',
           '<b>BIOLOGY SCAN</b>',
@@ -106,6 +111,11 @@ export function initInspector(layout: QuadrantElements): void {
           bar('HP', p.health, '#f44336'),
           bar('NRG', Math.min(p.energy / 80, 1), '#f8d348'),
           `Biomass: ${(p.biomass * 1000).toFixed(0)}g | Age: ${p.age} ticks`,
+          '',
+          '<b>METABOLISM</b>',
+          `Photosynthesis: <span style="color:#4caf50">+${p._dbgPhotosynthesis.toFixed(3)}</span>/tick`,
+          `Respiration: <span style="color:#f44336">-${p._dbgRespiration.toFixed(3)}</span>/tick`,
+          `Net: <span style="color:${netColor}">${netSign}${netEnergy.toFixed(3)}</span>/tick`,
           '',
           '<b>MORPHOLOGY</b>',
           `Height: ${p.height.toFixed(2)}m | Trunk: ${(p.trunkRadius * 100).toFixed(1)}cm`,

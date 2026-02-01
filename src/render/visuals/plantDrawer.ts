@@ -80,10 +80,11 @@ export function drawShoot(
 
   const rng = new SeededRandom(plant.phenotypeSeed);
 
-  // Scale: map plant.height (meters) into pixel space
-  // At height 0.05m (seedling) we want ~30px, at 3m we want ~70% of view
-  const maxDrawH = viewH * 0.7;
-  const scale = Math.min(maxDrawH / Math.max(plant.height, 0.05), viewH * 2);
+  // Auto-zoom: plant always fills ~60% of the view height.
+  // Seedlings get a macro lens, tall trees zoom out.
+  const targetRatio = 0.6;
+  const effectiveHeight = Math.max(plant.height, 0.08); // Treat < 8cm as 8cm for zoom
+  const scale = (viewH * targetRatio) / effectiveHeight;
 
   const baseX = viewW / 2;
   const baseY = viewH - 20; // Ground line
@@ -95,7 +96,7 @@ export function drawShoot(
 
   // Draw the plant growing upward
   const trunkH = plant.height * scale;
-  const trunkW = Math.max(1.5, plant.trunkRadius * scale * 50);
+  const trunkW = Math.max(2, plant.trunkRadius * scale * 2);
 
   drawBranch(gfx, rng, {
     x: baseX,
@@ -106,11 +107,12 @@ export function drawShoot(
     depth: 0,
     maxDepth: Math.min(plant.branchCount + 1, 7),
     leafArea: plant.leafArea,
-    leafColor: genome.color === 0xff0000 ? LEAF_GREEN : genome.color, // Override red genome with green leaves
+    leafColor: genome.color === 0xff0000 ? LEAF_GREEN : genome.color,
     hasSpikes: genome.activeTraits.has('spikes'),
     flowering: plant.flowering,
     fruit: plant.fruit,
     plantHeight: plant.height,
+    zoomScale: scale,
   });
 }
 
@@ -128,6 +130,7 @@ interface BranchParams {
   flowering: number;
   fruit: number;
   plantHeight: number;
+  zoomScale: number;
 }
 
 function drawBranch(gfx: Graphics, rng: SeededRandom, p: BranchParams): void {
@@ -172,15 +175,21 @@ function drawBranch(gfx: Graphics, rng: SeededRandom, p: BranchParams): void {
     }
   }
 
+  // Zoom-aware sizing: leaves and details scale with camera
+  // At macro zoom (seedling), zoomScale is large → bigger pixel details
+  // At wide zoom (tree), zoomScale is small → details shrink proportionally
+  const detailScale = Math.min(p.zoomScale * 0.01, 3); // Clamp so trees don't get giant leaves
+
   // ── Leaves along branches (not just at tips) ──
-  if (p.leafArea > 0.001 && p.depth >= 1) {
-    const leavesOnBranch = Math.max(1, Math.floor(p.leafArea * 15 / Math.max(p.maxDepth, 1)));
+  if (p.leafArea > 0.0005 && p.depth >= 1) {
+    const leavesOnBranch = Math.max(1, Math.floor(p.leafArea * 20 / Math.max(p.maxDepth, 1)));
     for (let i = 0; i < leavesOnBranch; i++) {
-      const t = rng.range(0.3, 1.0); // Position along branch
-      const lx = p.x + (endX - p.x) * t + rng.range(-5, 5);
-      const ly = p.y + (endY - p.y) * t + rng.range(-5, 5);
-      const leafW = 3 + p.leafArea * 4;
-      const leafH = 1.5 + p.leafArea * 2;
+      const t = rng.range(0.3, 1.0);
+      const spread = Math.max(3, 5 * detailScale);
+      const lx = p.x + (endX - p.x) * t + rng.range(-spread, spread);
+      const ly = p.y + (endY - p.y) * t + rng.range(-spread, spread);
+      const leafW = Math.max(3, (3 + p.leafArea * 40) * detailScale);
+      const leafH = Math.max(1.5, leafW * 0.5);
       const shade = rng.range(0.7, 1.0);
       gfx.ellipse(lx, ly, leafW, leafH);
       gfx.fill({ color: darkenColor(LEAF_GREEN, shade), alpha: 0.85 });
@@ -190,7 +199,7 @@ function drawBranch(gfx: Graphics, rng: SeededRandom, p: BranchParams): void {
   // ── Terminal: leaf clusters, flowers, fruit ──
   if (p.depth >= p.maxDepth - 1 || p.length < 8) {
     // Leaf cluster at branch tip
-    const leafSize = Math.max(2, 3 + p.leafArea * 6);
+    const leafSize = Math.max(4, (4 + p.leafArea * 50) * detailScale);
     const leafCount = 3 + Math.floor(rng.next() * 4);
     for (let i = 0; i < leafCount; i++) {
       const lAngle = p.angle + rng.range(-1.0, 1.0);
@@ -205,10 +214,10 @@ function drawBranch(gfx: Graphics, rng: SeededRandom, p: BranchParams): void {
 
     // Flowers (when flowering > 0.1)
     if (p.flowering > 0.1 && rng.next() < p.flowering) {
-      const fx = endX + rng.range(-4, 4);
-      const fy = endY + rng.range(-4, 4);
-      const fSize = 2 + p.flowering * 5;
-      // 5 petals
+      const fOff = Math.max(4, 4 * detailScale);
+      const fx = endX + rng.range(-fOff, fOff);
+      const fy = endY + rng.range(-fOff, fOff);
+      const fSize = Math.max(3, (2 + p.flowering * 5) * detailScale);
       for (let i = 0; i < 5; i++) {
         const pa = (i / 5) * Math.PI * 2;
         const px = fx + Math.cos(pa) * fSize;
@@ -216,16 +225,16 @@ function drawBranch(gfx: Graphics, rng: SeededRandom, p: BranchParams): void {
         gfx.circle(px, py, fSize * 0.35);
         gfx.fill({ color: FLOWER_PINK, alpha: 0.7 * p.flowering });
       }
-      // Center pistil
       gfx.circle(fx, fy, fSize * 0.2);
       gfx.fill(FLOWER_CENTER);
     }
 
     // Fruit (when fruit > 0.2)
     if (p.fruit > 0.2 && rng.next() < p.fruit) {
-      const frx = endX + rng.range(-6, 6);
-      const fry = endY + rng.range(1, 10);
-      const frSize = 2 + p.fruit * 5;
+      const frOff = Math.max(5, 6 * detailScale);
+      const frx = endX + rng.range(-frOff, frOff);
+      const fry = endY + rng.range(1, frOff * 1.5);
+      const frSize = Math.max(3, (2 + p.fruit * 5) * detailScale);
       gfx.circle(frx, fry, frSize);
       gfx.fill({ color: FRUIT_RED, alpha: 0.6 + p.fruit * 0.4 });
     }
@@ -288,8 +297,10 @@ export function drawRoots(
 
   const rng = new SeededRandom(plant.phenotypeSeed + 999);
 
-  const maxDrawH = viewH * 0.7;
-  const scale = Math.min(maxDrawH / Math.max(plant.rootDepth, 0.05), viewH * 2);
+  // Auto-zoom: roots always fill ~60% of view depth
+  const targetRatio = 0.6;
+  const effectiveDepth = Math.max(plant.rootDepth, 0.08);
+  const scale = (viewH * targetRatio) / effectiveDepth;
 
   const baseX = viewW / 2;
   const baseY = 15; // Soil surface near top
@@ -304,7 +315,7 @@ export function drawRoots(
   gfx.fill({ color: 0x3d2b1f, alpha: 0.15 });
 
   const rootH = plant.rootDepth * scale;
-  const rootW = Math.max(1.5, plant.trunkRadius * scale * 35);
+  const rootW = Math.max(2, plant.trunkRadius * scale * 2);
 
   drawRoot(gfx, rng, {
     x: baseX,
