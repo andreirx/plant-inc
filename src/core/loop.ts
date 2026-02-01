@@ -1,4 +1,4 @@
-import { TICK_DURATION_MS, MAX_ACCUMULATOR_MS } from './constants';
+import { TICK_DURATION_MS } from './constants';
 import { state } from './state';
 
 export type UpdateFn = (dt: number) => void;
@@ -11,46 +11,43 @@ interface GameLoop {
 }
 
 /**
- * Creates a game loop with fixed timestep simulation and variable render rate.
+ * Base ticks per frame at 1x speed.
+ * At 60fps with TICK_RATE=20: ~1 tick every 3 frames at 1x.
+ * We use a fractional accumulator so sub-1x speeds work correctly.
+ */
+const BASE_TICKS_PER_FRAME = 1;
+
+/**
+ * Creates a game loop where speed controls determine how many real
+ * simulation ticks run per animation frame.
  *
- * The simulation updates at a fixed 20Hz rate using an accumulator pattern.
- * The render callback runs every animation frame and receives an interpolation
- * factor (0..1) indicating progress between the last and next simulation tick,
- * enabling smooth visuals independent of the tick rate.
+ *   0.1x → ~0.1 ticks/frame (1 tick every ~10 frames)
+ *   1x   → 1 tick/frame
+ *   10x  → 10 ticks/frame
+ *   50x  → 50 ticks/frame
+ *
+ * Every tick is a real, full simulation step. No fake time stretching.
  */
 export function createGameLoop(update: UpdateFn, render: RenderFn): GameLoop {
-  let accumulator = 0;
-  let lastTime = 0;
   let rafId = 0;
   let running = false;
+  let tickDebt = 0; // Fractional tick accumulator for sub-1x speeds
 
-  function frame(currentTime: number): void {
+  function frame(): void {
     if (!running) return;
 
-    if (lastTime === 0) {
-      lastTime = currentTime;
+    if (!state.paused) {
+      // How many ticks to run this frame
+      tickDebt += BASE_TICKS_PER_FRAME * state.timeScale;
+      const ticksThisFrame = Math.floor(tickDebt);
+      tickDebt -= ticksThisFrame;
+
+      for (let i = 0; i < ticksThisFrame; i++) {
+        update(TICK_DURATION_MS);
+      }
     }
 
-    let deltaMs = currentTime - lastTime;
-    lastTime = currentTime;
-
-    // Cap accumulated time to prevent spiral of death
-    if (deltaMs > MAX_ACCUMULATOR_MS) {
-      deltaMs = MAX_ACCUMULATOR_MS;
-    }
-
-    accumulator += deltaMs * state.timeScale;
-
-    // Fixed timestep simulation updates
-    while (accumulator >= TICK_DURATION_MS) {
-      update(TICK_DURATION_MS);
-      accumulator -= TICK_DURATION_MS;
-    }
-
-    // Interpolation factor for smooth rendering between ticks
-    const interpolation = accumulator / TICK_DURATION_MS;
-    render(interpolation);
-
+    render(0);
     rafId = requestAnimationFrame(frame);
   }
 
@@ -58,8 +55,7 @@ export function createGameLoop(update: UpdateFn, render: RenderFn): GameLoop {
     start(): void {
       if (running) return;
       running = true;
-      lastTime = 0;
-      accumulator = 0;
+      tickDebt = 0;
       rafId = requestAnimationFrame(frame);
     },
     stop(): void {

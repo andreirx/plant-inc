@@ -9,6 +9,7 @@ const SPEEDS = [
   { label: '0.1x', value: 0.1 },
   { label: '1x', value: 1 },
   { label: '10x', value: 10 },
+  { label: '50x', value: 50 },
 ];
 
 const BTN_BASE =
