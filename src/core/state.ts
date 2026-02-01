@@ -34,6 +34,7 @@ export interface SimulationState {
   grid: GridCell[][];
   climate: ClimateState;
   species: SpeciesGenome;
+  selection: { x: number; y: number } | null;
 }
 
 function createGrid(width: number, height: number): GridCell[][] {
@@ -81,6 +82,7 @@ export function createInitialState(): SimulationState {
       dayOfYear: 0,
     },
     species: createDefaultSpecies(),
+    selection: { x: Math.floor(GRID_WIDTH / 2), y: Math.floor(GRID_HEIGHT / 2) },
   };
 }
 
