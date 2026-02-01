@@ -11,6 +11,7 @@
 
 import { Graphics } from 'pixi.js';
 import { state } from '../../core/state';
+import { TICKS_PER_DAY, DAYS_PER_YEAR } from '../../core/constants';
 
 // Sky palette
 const DAY_TOP = { r: 0x4a, g: 0x90, b: 0xe2 };    // #4A90E2 — clear blue
@@ -39,10 +40,19 @@ export function createAtmosphereOverlay(_width: number, _height: number): Graphi
   return new Graphics();
 }
 
-export function updateAtmosphereOverlay(gfx: Graphics, width: number, height: number): void {
+export function updateAtmosphereOverlay(gfx: Graphics, width: number, height: number, interpolation = 0): void {
   gfx.clear();
 
-  const { sunlight, humidity } = state.climate;
+  // Compute visual sunlight/humidity from continuous interpolated time
+  // so the sky animates smoothly at 60fps even when ticks fire at 2/sec (0.1x)
+  const continuousTick = state.tick + interpolation;
+  const totalDays = continuousTick / TICKS_PER_DAY;
+  const dayFraction = totalDays - Math.floor(totalDays);
+  const dayOfYear = Math.floor(totalDays) % DAYS_PER_YEAR;
+  const yearProgress = dayOfYear / DAYS_PER_YEAR;
+
+  const sunlight = Math.max(0, Math.sin(dayFraction * Math.PI));
+  const humidity = 0.5 + 0.2 * Math.sin(yearProgress * Math.PI * 2 + (-Math.PI / 2) + Math.PI);
 
   // Lerp between day and night palette based on sunlight
   const top = lerpRGB(NIGHT_TOP, DAY_TOP, sunlight);

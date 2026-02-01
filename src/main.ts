@@ -98,13 +98,13 @@ async function bootstrap(): Promise<void> {
   }
 
   // Render — runs every animation frame
-  function render(_interpolation: number): void {
+  function render(interpolation: number): void {
     updatePlantLayer(plantGfx);
 
-    // Atmosphere overlay
+    // Atmosphere overlay (interpolated for smooth sky at slow speeds)
     const airW = quadrants.airView.clientWidth;
     const airH = quadrants.airView.clientHeight;
-    updateAtmosphereOverlay(atmosphereGfx, airW, airH);
+    updateAtmosphereOverlay(atmosphereGfx, airW, airH, interpolation);
 
     // Get the selected plant for detailed rendering
     const sel = state.selection;
