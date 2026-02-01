@@ -8,6 +8,7 @@ import { state } from '../../core/state';
 import { BIOMES } from '../../core/data/biomes';
 import { BIOTA_DB } from '../../core/data/biota';
 import { SOIL_TYPES } from '../../core/data/soil';
+import { TRAIT_DATABASE } from '../../core/data/traits';
 import { type QuadrantElements } from '../layout';
 
 const PANEL_STYLE =
@@ -86,11 +87,32 @@ export function initInspector(layout: QuadrantElements): void {
       ];
 
       if (cell.plant) {
+        const p = cell.plant;
+
+        // Active traits display
+        const traitNames = Array.from(state.species.activeTraits)
+          .map((id) => {
+            const key = id.toUpperCase();
+            return TRAIT_DATABASE[key]?.name ?? id;
+          })
+          .join(', ');
+
         lines.push(
+          '<hr style="border-color:#444;margin:4px 0">',
+          '<b>BIOLOGY SCAN</b>',
+          `Genetics: <span style="color:#f8d348">${traitNames || 'None'}</span>`,
           '',
-          '<b>PLANT</b>',
-          bar('HP', cell.plant.health, '#f44336'),
-          `Biomass: ${cell.plant.biomass.toFixed(2)} | Age: ${cell.plant.age}`,
+          '<b>VITALS</b>',
+          bar('HP', p.health, '#f44336'),
+          bar('NRG', Math.min(p.energy / 80, 1), '#f8d348'),
+          `Biomass: ${(p.biomass * 1000).toFixed(0)}g | Age: ${p.age} ticks`,
+          '',
+          '<b>MORPHOLOGY</b>',
+          `Height: ${p.height.toFixed(2)}m | Trunk: ${(p.trunkRadius * 100).toFixed(1)}cm`,
+          `Roots: ${p.rootDepth.toFixed(2)}m | Leaves: ${p.leafArea.toFixed(3)}m²`,
+          `Branches: ${p.branchCount}`,
+          p.flowering > 0 ? `Flowering: ${(p.flowering * 100).toFixed(0)}%` : '',
+          p.fruit > 0 ? `Fruit: ${(p.fruit * 100).toFixed(0)}%` : '',
         );
       }
 

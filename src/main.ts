@@ -1,3 +1,4 @@
+import { Graphics } from 'pixi.js';
 import { createLayout } from './ui/layout';
 import { createPixiApp } from './render/app';
 import { createGameLoop } from './core/loop';
@@ -5,10 +6,12 @@ import { state } from './core/state';
 import { GRID_WIDTH, GRID_HEIGHT } from './core/constants';
 import { generateWorld } from './core/systems/mapGenerator';
 import { updateClimate } from './core/systems/climate';
+import { updateGrowth } from './core/systems/growth';
 import { createTerrainLayer, TILE_SIZE } from './render/layers/terrainLayer';
 import { createPlantLayer, updatePlantLayer } from './render/layers/plantLayer';
 import { createCursorLayer, updateCursorLayer } from './render/layers/cursorLayer';
 import { createAtmosphereOverlay, updateAtmosphereOverlay } from './render/layers/atmosphereLayer';
+import { drawShoot, drawRoots } from './render/visuals/plantDrawer';
 import { initInspector } from './ui/components/inspector';
 import { initEvolutionUI } from './ui/components/evolution';
 
@@ -17,7 +20,9 @@ async function bootstrap(): Promise<void> {
   if (!appContainer) throw new Error('Missing #app container');
 
   // Generate the world from the state seed
-  state.grid = generateWorld(state.seed);
+  const world = generateWorld(state.seed);
+  state.grid = world.grid;
+  state.selection = { x: world.startX, y: world.startY };
 
   // Set up the 4-quadrant layout
   const quadrants = createLayout(appContainer);
@@ -46,12 +51,18 @@ async function bootstrap(): Promise<void> {
     updateCursorLayer(cursorGfx, state.selection.x, state.selection.y);
   }
 
-  // --- Air Quadrant: Atmosphere overlay ---
+  // --- Air Quadrant: Atmosphere overlay + plant shoot visualization ---
   const atmosphereGfx = createAtmosphereOverlay(
     quadrants.airView.clientWidth,
     quadrants.airView.clientHeight,
   );
-  airApp.stage.addChild(atmosphereGfx);
+  const shootGfx = new Graphics();
+  airApp.stage.addChild(shootGfx);
+  airApp.stage.addChild(atmosphereGfx); // Atmosphere on top for tint effect
+
+  // --- Soil Quadrant: Root visualization ---
+  const rootGfx = new Graphics();
+  soilApp.stage.addChild(rootGfx);
 
   // --- Map Interaction: click to select tile ---
   mapApp.stage.eventMode = 'static';
@@ -79,18 +90,32 @@ async function bootstrap(): Promise<void> {
     if (state.paused) return;
     state.tick++;
     updateClimate(state);
+    updateGrowth(state);
   }
 
   // Render — runs every animation frame
   function render(_interpolation: number): void {
     updatePlantLayer(plantGfx);
-    updateAtmosphereOverlay(
-      atmosphereGfx,
-      quadrants.airView.clientWidth,
-      quadrants.airView.clientHeight,
-    );
 
-    void soilApp;
+    // Atmosphere overlay
+    const airW = quadrants.airView.clientWidth;
+    const airH = quadrants.airView.clientHeight;
+    updateAtmosphereOverlay(atmosphereGfx, airW, airH);
+
+    // Get the selected plant for detailed rendering
+    const sel = state.selection;
+    const selectedPlant = sel ? state.grid[sel.y][sel.x].plant : null;
+
+    if (selectedPlant) {
+      drawShoot(shootGfx, selectedPlant, state.species, airW, airH);
+      drawRoots(rootGfx, selectedPlant,
+        quadrants.soilView.clientWidth,
+        quadrants.soilView.clientHeight,
+      );
+    } else {
+      shootGfx.clear();
+      rootGfx.clear();
+    }
   }
 
   const loop = createGameLoop(update, render);

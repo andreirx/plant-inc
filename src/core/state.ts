@@ -4,9 +4,24 @@ import { type SpeciesGenome, BASE_STATS, computeStats } from './data/traits';
 
 export interface SpeciesInstance {
   genomeId: string;
-  age: number;     // Ticks since planted
-  health: number;  // 0.0 (dead) - 1.0 (thriving)
-  biomass: number; // Accumulated growth resource
+  age: number;          // Ticks alive
+  health: number;       // 0.0 (dead) - 1.0 (thriving)
+  energy: number;       // Stored sugar (glucose) from photosynthesis
+  biomass: number;      // Total dry mass (kg) — cost of living scales with this
+
+  // Morphology — the physical body
+  height: number;       // Meters — access to sunlight, shading neighbors
+  trunkRadius: number;  // Meters — structural stability
+  rootDepth: number;    // Meters — access to deep water/nutrients
+  leafArea: number;     // m² — photosynthesis capacity (chloroplast surface)
+  branchCount: number;  // Number of branch segments (visual complexity)
+
+  // Lifecycle
+  flowering: number;    // 0.0 (none) -> 1.0 (full bloom)
+  fruit: number;        // 0.0 (none) -> 1.0 (ripe, ready to seed)
+
+  // Visual DNA — per-instance random variation for procedural rendering
+  phenotypeSeed: number;
 }
 
 export interface GridCell {
@@ -19,12 +34,12 @@ export interface GridCell {
 }
 
 export interface ClimateState {
-  temperature: number; // Global base temperature (varies by season)
+  temperature: number;
   humidity: number;
-  sunlight: number;    // 0.0 - 1.0, varies by day cycle
+  sunlight: number;
   windSpeed: number;
   season: 'Spring' | 'Summer' | 'Autumn' | 'Winter';
-  dayOfYear: number;   // 0 - 364
+  dayOfYear: number;
 }
 
 export interface SimulationState {
@@ -66,6 +81,25 @@ function createDefaultSpecies(): SpeciesGenome {
   };
   genome.stats = computeStats(genome);
   return genome;
+}
+
+/** Create a new plant instance — starts as a tiny seedling */
+export function createPlantInstance(genomeId: string): SpeciesInstance {
+  return {
+    genomeId,
+    age: 0,
+    health: 1.0,
+    energy: 10.0,       // Small sugar reserve from seed endosperm
+    biomass: 0.05,      // 50 grams — a germinated seed
+    height: 0.05,       // 5 cm seedling
+    trunkRadius: 0.002, // 2 mm stem
+    rootDepth: 0.05,    // 5 cm radicle
+    leafArea: 0.001,    // Tiny cotyledons
+    branchCount: 0,
+    flowering: 0,
+    fruit: 0,
+    phenotypeSeed: Math.random(),
+  };
 }
 
 export function createInitialState(): SimulationState {

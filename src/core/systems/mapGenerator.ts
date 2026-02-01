@@ -11,7 +11,7 @@
 import { GRID_WIDTH, GRID_HEIGHT } from '../constants';
 import { SOIL_TYPES, type NutrientProfile } from '../data/soil';
 import { BIOMES } from '../data/biomes';
-import { type GridCell, type SpeciesInstance } from '../state';
+import { type GridCell, createPlantInstance } from '../state';
 import { SimplexNoise } from '../../utils/noise';
 
 // Noise sampling scales
@@ -70,7 +70,7 @@ function getWaterRetention(soilId: string): number {
 /**
  * Generate a complete world grid.
  */
-export function generateWorld(seed: number): GridCell[][] {
+export function generateWorld(seed: number): { grid: GridCell[][]; startX: number; startY: number } {
   const moistureNoise = new SimplexNoise(seed);
   const tempNoise = new SimplexNoise(seed + 31337);
   const soilNoise = new SimplexNoise(seed + 65521);
@@ -104,27 +104,45 @@ export function generateWorld(seed: number): GridCell[][] {
     grid.push(row);
   }
 
-  // --- Pass 4: Place starting plant at center (ensure it's on land) ---
+  // --- Pass 4: Place starting plant on nearest LAND tile to center ---
   const cx = Math.floor(GRID_WIDTH / 2);
   const cy = Math.floor(GRID_HEIGHT / 2);
 
-  // Force center tile to land if it generated as ocean
+  let startX = cx;
+  let startY = cy;
+
   if (grid[cy][cx].biomeId === 'ocean') {
-    grid[cy][cx].biomeId = 'temperate_forest';
-    grid[cy][cx].soilId = 'silt';
-    grid[cy][cx].moisture = 0.5;
-    grid[cy][cx].nutrients = getNutrients('silt');
+    // Spiral outward to find land
+    let found = false;
+    for (let radius = 1; radius < 50 && !found; radius++) {
+      for (let dy = -radius; dy <= radius && !found; dy++) {
+        for (let dx = -radius; dx <= radius && !found; dx++) {
+          const nx = cx + dx;
+          const ny = cy + dy;
+          if (nx >= 0 && nx < GRID_WIDTH && ny >= 0 && ny < GRID_HEIGHT) {
+            if (grid[ny][nx].biomeId !== 'ocean') {
+              startX = nx;
+              startY = ny;
+              found = true;
+            }
+          }
+        }
+      }
+    }
+    // Absolute fallback: force center to land
+    if (!found) {
+      grid[cy][cx].biomeId = 'temperate_forest';
+      grid[cy][cx].soilId = 'silt';
+      grid[cy][cx].moisture = 0.5;
+      grid[cy][cx].nutrients = getNutrients('silt');
+      startX = cx;
+      startY = cy;
+    }
   }
 
-  const startPlant: SpeciesInstance = {
-    genomeId: 'player',
-    age: 0,
-    health: 1.0,
-    biomass: 1.0,
-  };
-  grid[cy][cx].plant = startPlant;
+  grid[startY][startX].plant = createPlantInstance('player');
 
-  return grid;
+  return { grid, startX, startY };
 }
 
 function computeTileClimate(
