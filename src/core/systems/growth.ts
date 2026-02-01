@@ -58,6 +58,16 @@ const LEAF_RATE = 0.006;         // m² leaf area per unit energy invested
 const TRUNK_RATE = 0.0003;       // Trunk radius increase per unit energy invested
 const BRANCH_INTERVAL = 0.4;    // New branch every 0.4m of height
 
+// ── Growth limits (biological maximums) ──────────────────────────
+const MAX_HEIGHT = 25;           // Meters — tallest temperate trees
+const MAX_LEAF_AREA = 40;        // m² — canopy limit
+const MAX_ROOT_DEPTH = 12;       // Meters — deepest tap roots
+const MAX_TRUNK_RADIUS = 1.5;    // Meters — structural limit
+
+// ── Self-shading ─────────────────────────────────────────────────
+const SELF_SHADING_ONSET = 2.0;  // m² leaf area before shading begins
+const SELF_SHADING_HALF = 15.0;  // m² at which photosynthetic efficiency halves
+
 // ── Lifecycle ───────────────────────────────────────────────────
 const MATURITY_AGE = 150;        // Ticks before flowering possible
 const FLOWER_RATE = 0.012;       // Flowering progress per tick
@@ -129,14 +139,20 @@ function simulatePlant(
 
   const rootEfficiency = 1 + stats.root_growth_speed * 0.3;
 
-  // Water absorption: limited by soil moisture and root reach
+  // Groundwater access: deep roots (> 0.3m) tap into the water table
+  // This provides a moisture floor even when surface soil is bone-dry
+  const groundwaterAccess = Math.max(0, plant.rootDepth - 0.3) * 0.15;
+  const droughtBuffer = stats.drought_resistance * 0.1; // Trait adds passive water access
+  const effectiveMoisture = Math.min(1.0, soil.moisture + groundwaterAccess + droughtBuffer);
+
+  // Water absorption: limited by effective moisture and root reach
   const waterAbsorbed = Math.min(
-    soil.moisture,
+    effectiveMoisture,
     plant.rootDepth * WATER_UPTAKE_RATE * rootEfficiency * (1 + stats.drought_resistance * 0.5),
   );
 
-  // Consume soil moisture (roots drink)
-  soil.moisture = Math.max(0, soil.moisture - waterAbsorbed * 0.02);
+  // Consume soil moisture (roots drink) — only deplete surface moisture, not groundwater
+  soil.moisture = Math.max(0, soil.moisture - Math.min(waterAbsorbed, soil.moisture) * 0.02);
 
   // Mineral absorption: proportional to root depth and soil concentration
   const nAbsorbed = soil.nutrients.nitrogen * plant.rootDepth * NUTRIENT_UPTAKE_RATE;
@@ -166,7 +182,21 @@ function simulatePlant(
   }
 
   const effectiveLeafArea = plant.leafArea + 0.005; // Cotyledons provide minimal photosynthesis
-  const sunEnergy = effectiveLeafArea * PHOTO_BASE * climate.sunlight * waterFactor;
+
+  // Self-shading: large canopies shade their own lower leaves.
+  // Follows a saturating curve — doubling leaf area does NOT double photosynthesis.
+  // Uses Michaelis-Menten: effective = leafArea * halfPoint / (leafArea + halfPoint)
+  let shadedLeafArea: number;
+  if (effectiveLeafArea <= SELF_SHADING_ONSET) {
+    shadedLeafArea = effectiveLeafArea; // Small canopy: no self-shading
+  } else {
+    // Beyond onset, diminishing returns via hyperbolic saturation
+    shadedLeafArea = SELF_SHADING_ONSET +
+      (effectiveLeafArea - SELF_SHADING_ONSET) * SELF_SHADING_HALF /
+      (effectiveLeafArea - SELF_SHADING_ONSET + SELF_SHADING_HALF);
+  }
+
+  const sunEnergy = shadedLeafArea * PHOTO_BASE * climate.sunlight * waterFactor;
 
   // Nitrogen boosts chlorophyll content → more efficient photosynthesis
   const nitrogenBonus = 1 + nAbsorbed * 5;
@@ -212,29 +242,50 @@ function simulatePlant(
     const surplus = plant.energy - dynamicThreshold;
     const investment = Math.min(surplus * 0.4, 5.0); // Cap per-tick investment
 
+    // Nutrient limitation: low soil NPK throttles growth directly
+    const nutrientFactor = Math.min(
+      Math.min(soil.nutrients.nitrogen / 0.1, 1.0),     // Below 10% N → growth limited
+      Math.min(soil.nutrients.phosphorus / 0.08, 1.0),   // Below 8% P → growth limited
+    );
+
+    // Diminishing returns: growth slows as plant approaches maximum size
+    const heightRoom = Math.max(0, 1 - plant.height / MAX_HEIGHT);
+    const leafRoom = Math.max(0, 1 - plant.leafArea / MAX_LEAF_AREA);
+    const rootRoom = Math.max(0, 1 - plant.rootDepth / MAX_ROOT_DEPTH);
+    const trunkRoom = Math.max(0, 1 - plant.trunkRadius / MAX_TRUNK_RADIUS);
+
+    // Structural constraint: height limited by trunk radius
+    // A thin trunk can't support a tall tree (buckling limit)
+    // Max height ≈ trunk_radius * 200 (allometric scaling)
+    const structuralHeightLimit = plant.trunkRadius * 200;
+    const structuralFactor = plant.height < structuralHeightLimit ? 1.0 :
+      Math.max(0, 1 - (plant.height - structuralHeightLimit) / 2);
+
+    // Combined growth modifier
+    const growthMod = nutrientFactor;
+
     // Determine growth strategy based on current bottleneck
     const waterLimited = soil.moisture < 0.2;
     const lightLimited = climate.sunlight < 0.3;
 
     if (waterLimited) {
       // Drought response: prioritize root growth
-      // Phosphorus accelerates root development
       const pBonus = 1 + pAbsorbed * 3;
-      plant.rootDepth += ROOT_RATE * investment * stats.root_growth_speed * pBonus;
-      plant.leafArea += LEAF_RATE * investment * 0.1; // Minimal leaf growth
-      plant.trunkRadius += TRUNK_RATE * investment * 0.3;
+      plant.rootDepth += ROOT_RATE * investment * stats.root_growth_speed * pBonus * rootRoom * growthMod;
+      plant.leafArea += LEAF_RATE * investment * 0.1 * leafRoom * growthMod;
+      plant.trunkRadius += TRUNK_RATE * investment * 0.3 * trunkRoom * growthMod;
     } else if (lightLimited) {
       // Shade response: etiolation — grow tall, expand leaf canopy
-      plant.height += HEIGHT_RATE * investment * 1.5;
-      plant.leafArea += LEAF_RATE * investment * 1.5;
-      plant.trunkRadius += TRUNK_RATE * investment;
+      plant.height += HEIGHT_RATE * investment * 1.5 * heightRoom * structuralFactor * growthMod;
+      plant.leafArea += LEAF_RATE * investment * 1.5 * leafRoom * growthMod;
+      plant.trunkRadius += TRUNK_RATE * investment * trunkRoom * growthMod;
     } else {
       // Balanced growth — nitrogen fuels vegetative expansion
       const nBonus = 1 + nAbsorbed * 3;
-      plant.height += HEIGHT_RATE * investment * nBonus;
-      plant.rootDepth += ROOT_RATE * investment * (1 + stats.root_growth_speed * 0.3);
-      plant.leafArea += LEAF_RATE * investment * nBonus;
-      plant.trunkRadius += TRUNK_RATE * investment * nBonus;
+      plant.height += HEIGHT_RATE * investment * nBonus * heightRoom * structuralFactor * growthMod;
+      plant.rootDepth += ROOT_RATE * investment * (1 + stats.root_growth_speed * 0.3) * rootRoom * growthMod;
+      plant.leafArea += LEAF_RATE * investment * nBonus * leafRoom * growthMod;
+      plant.trunkRadius += TRUNK_RATE * investment * nBonus * trunkRoom * growthMod;
     }
 
     plant.energy -= investment;
