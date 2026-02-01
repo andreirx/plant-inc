@@ -11,7 +11,7 @@ import { createTerrainLayer, TILE_SIZE } from './render/layers/terrainLayer';
 import { createPlantLayer, updatePlantLayer } from './render/layers/plantLayer';
 import { createCursorLayer, updateCursorLayer } from './render/layers/cursorLayer';
 import { createAtmosphereOverlay, updateAtmosphereOverlay } from './render/layers/atmosphereLayer';
-import { drawShoot, drawRoots } from './render/visuals/plantDrawer';
+import { drawPlant } from './render/visuals/plantDrawer';
 import { initInspector } from './ui/components/inspector';
 import { initEvolutionUI } from './ui/components/evolution';
 import { initSpeedControls } from './ui/components/speedControls';
@@ -111,11 +111,9 @@ async function bootstrap(): Promise<void> {
     const selectedPlant = sel ? state.grid[sel.y][sel.x].plant : null;
 
     if (selectedPlant) {
-      drawShoot(shootGfx, selectedPlant, state.species, airW, airH);
-      drawRoots(rootGfx, selectedPlant,
-        quadrants.soilView.clientWidth,
-        quadrants.soilView.clientHeight,
-      );
+      const soilW = quadrants.soilView.clientWidth;
+      const soilH = quadrants.soilView.clientHeight;
+      drawPlant(shootGfx, rootGfx, selectedPlant, state.species, airW, airH, soilW, soilH);
     } else {
       shootGfx.clear();
       rootGfx.clear();

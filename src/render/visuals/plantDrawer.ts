@@ -1,23 +1,34 @@
 /**
- * Procedural plant renderer — draws a plant's above-ground shoot system
- * and below-ground root system using recursive branching.
+ * Procedural plant renderer — unified two-phase architecture.
  *
- * Shoot system (Air View): Trunk grows upward from bottom-center, branches
- * fork off at intervals, terminal branches bear leaf clusters, flowers,
- * and fruit. Trunk/branches drawn as brown lines with tapered widths.
- * Leaves drawn as green ellipses at branch tips and along branches.
+ * The plant is ONE organism split across two quadrants:
+ *   Q1 (Air View):  above-ground shoot — trunk, branches, leaves, flowers, fruit
+ *   Q2 (Soil View): below-ground roots — taproot, laterals, root hairs
  *
- * Root system (Soil View): Taproot grows downward from top-center, lateral
- * roots branch off with wobble, terminal roots show fine root hairs.
+ * Ground level is at the EXACT boundary between Q1 and Q2.
+ * Both quadrants share a SINGLE zoom scale so the trunk and taproot
+ * are visually continuous and proportionally correct.
  *
- * Uses phenotypeSeed for deterministic per-plant visual variation.
+ * PHASE 1: Build both structures as data in plant-space (meters).
+ *   Origin (0,0) = ground level. Y negative = up, Y positive = down.
+ *   Biological constraints enforced:
+ *     - Da Vinci's pipe model (parent cross-section ≥ Σ children)
+ *     - Gravitropism (branches grow upward, roots grow downward)
+ *     - Apical dominance (leader thicker/longer than laterals)
+ *
+ * PHASE 2: Compute unified scale from combined bounding box.
+ *   Scale = min(airFit, soilFit, widthFit) so everything fits.
+ *   Render each half into its Graphics object.
  */
 
 import { Graphics } from 'pixi.js';
 import { type SpeciesInstance } from '../../core/state';
 import { type SpeciesGenome } from '../../core/data/traits';
 
-// Seeded PRNG for deterministic branching per plant instance
+// ──────────────────────────────────────
+//  Seeded PRNG
+// ──────────────────────────────────────
+
 class SeededRandom {
   private s: number;
   constructor(seed: number) {
@@ -53,363 +64,531 @@ function lerpColor(a: number, b: number, t: number): number {
 }
 
 // ──────────────────────────────────────
-//  ABOVE GROUND — Shoot System
+//  Shared structure types
+// ──────────────────────────────────────
+
+interface BranchNode {
+  startX: number;
+  startY: number;
+  midX: number;
+  midY: number;
+  endX: number;
+  endY: number;
+  radius: number;
+  depth: number;
+  maxDepth: number;
+  children: BranchNode[];
+}
+
+interface BoundingBox {
+  minX: number;
+  maxX: number;
+  minY: number;  // Most negative (highest above ground)
+  maxY: number;  // Most positive (deepest below ground)
+}
+
+interface LeafCluster { x: number; y: number; size: number; shade: number }
+interface FlowerData { x: number; y: number; size: number; progress: number }
+interface FruitData { x: number; y: number; size: number; ripeness: number }
+interface SpikeData { x: number; y: number; angle: number; length: number }
+interface RootHair { x: number; y: number; angle: number; length: number }
+
+interface ShootStructure {
+  root: BranchNode;
+  bounds: BoundingBox;
+  leaves: LeafCluster[];
+  flowers: FlowerData[];
+  fruits: FruitData[];
+  spikes: SpikeData[];
+}
+
+interface RootStructure {
+  root: BranchNode;
+  bounds: BoundingBox;
+  hairs: RootHair[];
+}
+
+// ──────────────────────────────────────
+//  Constants
 // ──────────────────────────────────────
 
 const BARK_COLOR = 0x5d3a1a;
 const BARK_LIGHT = 0x7a5230;
 const LEAF_GREEN = 0x2d8a4e;
-const LEAF_DARK = 0x1b5e30;
-const LEAF_LIGHT = 0x4caf50;
 const FLOWER_PINK = 0xffaacc;
 const FLOWER_CENTER = 0xffee55;
 const FRUIT_RED = 0xe53935;
-
-/**
- * Draw the above-ground portion of a plant.
- * Anchored at bottom-center of the provided area.
- */
-export function drawShoot(
-  gfx: Graphics,
-  plant: SpeciesInstance,
-  genome: SpeciesGenome,
-  viewW: number,
-  viewH: number,
-): void {
-  gfx.clear();
-
-  const rng = new SeededRandom(plant.phenotypeSeed);
-
-  // Auto-zoom: plant always fills ~60% of the view height.
-  // Seedlings get a macro lens, tall trees zoom out.
-  const targetRatio = 0.6;
-  const effectiveHeight = Math.max(plant.height, 0.08); // Treat < 8cm as 8cm for zoom
-  const scale = (viewH * targetRatio) / effectiveHeight;
-
-  const baseX = viewW / 2;
-  const baseY = viewH - 20; // Ground line
-
-  // Draw ground line
-  gfx.moveTo(0, baseY);
-  gfx.lineTo(viewW, baseY);
-  gfx.stroke({ color: 0x4a3728, width: 2 });
-
-  // Draw the plant growing upward
-  const trunkH = plant.height * scale;
-  const trunkW = Math.max(2, plant.trunkRadius * scale * 2);
-
-  drawBranch(gfx, rng, {
-    x: baseX,
-    y: baseY,
-    angle: -Math.PI / 2, // Straight up
-    length: trunkH,
-    width: trunkW,
-    depth: 0,
-    maxDepth: Math.min(plant.branchCount + 1, 7),
-    leafArea: plant.leafArea,
-    leafColor: genome.color === 0xff0000 ? LEAF_GREEN : genome.color,
-    hasSpikes: genome.activeTraits.has('spikes'),
-    flowering: plant.flowering,
-    fruit: plant.fruit,
-    plantHeight: plant.height,
-    zoomScale: scale,
-  });
-}
-
-interface BranchParams {
-  x: number;
-  y: number;
-  angle: number;
-  length: number;
-  width: number;
-  depth: number;
-  maxDepth: number;
-  leafArea: number;
-  leafColor: number;
-  hasSpikes: boolean;
-  flowering: number;
-  fruit: number;
-  plantHeight: number;
-  zoomScale: number;
-}
-
-function drawBranch(gfx: Graphics, rng: SeededRandom, p: BranchParams): void {
-  if (p.length < 1) return;
-
-  const endX = p.x + Math.cos(p.angle) * p.length;
-  const endY = p.y + Math.sin(p.angle) * p.length;
-
-  // Slight natural curve via midpoint offset
-  const midT = 0.5;
-  const wobble = rng.range(-3, 3);
-  const perpAngle = p.angle + Math.PI / 2;
-  const midX = p.x + Math.cos(p.angle) * p.length * midT + Math.cos(perpAngle) * wobble;
-  const midY = p.y + Math.sin(p.angle) * p.length * midT + Math.sin(perpAngle) * wobble;
-
-  // Branch color: darker for trunk, lighter for twigs
-  const branchColor = p.depth === 0 ? BARK_COLOR : lerpColor(BARK_COLOR, BARK_LIGHT, p.depth / p.maxDepth);
-  const w = Math.max(1, p.width);
-
-  // Draw as two line segments through midpoint for natural curve
-  gfx.moveTo(p.x, p.y);
-  gfx.lineTo(midX, midY);
-  gfx.stroke({ color: branchColor, width: w });
-
-  gfx.moveTo(midX, midY);
-  gfx.lineTo(endX, endY);
-  gfx.stroke({ color: branchColor, width: w * 0.8 });
-
-  // ── Spikes along trunk/main branches ──
-  if (p.hasSpikes && p.depth <= 1) {
-    const spikeCount = Math.floor(p.length / 15);
-    for (let i = 1; i <= spikeCount; i++) {
-      const t = i / (spikeCount + 1);
-      const sx = p.x + (endX - p.x) * t;
-      const sy = p.y + (endY - p.y) * t;
-      const side = rng.next() > 0.5 ? 1 : -1;
-      const spikeAngle = p.angle + (Math.PI / 2) * side;
-      const sLen = 3 + rng.next() * 4;
-      gfx.moveTo(sx, sy);
-      gfx.lineTo(sx + Math.cos(spikeAngle) * sLen, sy + Math.sin(spikeAngle) * sLen);
-      gfx.stroke({ color: 0x8b4513, width: 1 });
-    }
-  }
-
-  // Zoom-aware sizing: leaves and details scale with camera
-  // At macro zoom (seedling), zoomScale is large → bigger pixel details
-  // At wide zoom (tree), zoomScale is small → details shrink proportionally
-  const detailScale = Math.min(p.zoomScale * 0.01, 3); // Clamp so trees don't get giant leaves
-
-  // ── Leaves along branches (not just at tips) ──
-  if (p.leafArea > 0.0005 && p.depth >= 1) {
-    const leavesOnBranch = Math.max(1, Math.floor(p.leafArea * 20 / Math.max(p.maxDepth, 1)));
-    for (let i = 0; i < leavesOnBranch; i++) {
-      const t = rng.range(0.3, 1.0);
-      const spread = Math.max(3, 5 * detailScale);
-      const lx = p.x + (endX - p.x) * t + rng.range(-spread, spread);
-      const ly = p.y + (endY - p.y) * t + rng.range(-spread, spread);
-      const leafW = Math.max(3, (3 + p.leafArea * 40) * detailScale);
-      const leafH = Math.max(1.5, leafW * 0.5);
-      const shade = rng.range(0.7, 1.0);
-      gfx.ellipse(lx, ly, leafW, leafH);
-      gfx.fill({ color: darkenColor(LEAF_GREEN, shade), alpha: 0.85 });
-    }
-  }
-
-  // ── Terminal: leaf clusters, flowers, fruit ──
-  if (p.depth >= p.maxDepth - 1 || p.length < 8) {
-    // Leaf cluster at branch tip
-    const leafSize = Math.max(4, (4 + p.leafArea * 50) * detailScale);
-    const leafCount = 3 + Math.floor(rng.next() * 4);
-    for (let i = 0; i < leafCount; i++) {
-      const lAngle = p.angle + rng.range(-1.0, 1.0);
-      const lDist = rng.range(1, leafSize * 1.5);
-      const lx = endX + Math.cos(lAngle) * lDist;
-      const ly = endY + Math.sin(lAngle) * lDist;
-      const shade = rng.range(0.6, 1.0);
-      const color = lerpColor(LEAF_DARK, LEAF_LIGHT, shade);
-      gfx.ellipse(lx, ly, leafSize * 0.7, leafSize * 0.35);
-      gfx.fill({ color, alpha: 0.9 });
-    }
-
-    // Flowers (when flowering > 0.1)
-    if (p.flowering > 0.1 && rng.next() < p.flowering) {
-      const fOff = Math.max(4, 4 * detailScale);
-      const fx = endX + rng.range(-fOff, fOff);
-      const fy = endY + rng.range(-fOff, fOff);
-      const fSize = Math.max(3, (2 + p.flowering * 5) * detailScale);
-      for (let i = 0; i < 5; i++) {
-        const pa = (i / 5) * Math.PI * 2;
-        const px = fx + Math.cos(pa) * fSize;
-        const py = fy + Math.sin(pa) * fSize;
-        gfx.circle(px, py, fSize * 0.35);
-        gfx.fill({ color: FLOWER_PINK, alpha: 0.7 * p.flowering });
-      }
-      gfx.circle(fx, fy, fSize * 0.2);
-      gfx.fill(FLOWER_CENTER);
-    }
-
-    // Fruit (when fruit > 0.2)
-    if (p.fruit > 0.2 && rng.next() < p.fruit) {
-      const frOff = Math.max(5, 6 * detailScale);
-      const frx = endX + rng.range(-frOff, frOff);
-      const fry = endY + rng.range(1, frOff * 1.5);
-      const frSize = Math.max(3, (2 + p.fruit * 5) * detailScale);
-      gfx.circle(frx, fry, frSize);
-      gfx.fill({ color: FRUIT_RED, alpha: 0.6 + p.fruit * 0.4 });
-    }
-
-    return;
-  }
-
-  // ── Recurse: spawn child branches ──
-  const childCount = 1 + Math.floor(rng.next() * 2);
-  for (let i = 0; i < childCount; i++) {
-    const spread = rng.range(0.25, 0.75);
-    const side = i === 0 ? -1 : 1;
-    const childAngle = p.angle + spread * side + rng.range(-0.15, 0.15);
-    const childLength = p.length * rng.range(0.45, 0.7);
-    const childWidth = p.width * 0.55;
-
-    drawBranch(gfx, rng, {
-      ...p,
-      x: endX,
-      y: endY,
-      angle: childAngle,
-      length: childLength,
-      width: childWidth,
-      depth: p.depth + 1,
-    });
-  }
-
-  // Extra: sometimes a continuation branch (main leader)
-  if (rng.next() > 0.4) {
-    drawBranch(gfx, rng, {
-      ...p,
-      x: endX,
-      y: endY,
-      angle: p.angle + rng.range(-0.15, 0.15),
-      length: p.length * rng.range(0.5, 0.65),
-      width: p.width * 0.65,
-      depth: p.depth + 1,
-    });
-  }
-}
-
-// ──────────────────────────────────────
-//  BELOW GROUND — Root System
-// ──────────────────────────────────────
-
 const ROOT_DARK = 0x8b6914;
 const ROOT_LIGHT = 0xc4a35a;
+const GROUND_COLOR = 0x4a3728;
+
+// ══════════════════════════════════════════════════════════════════
+//  PUBLIC API
+// ══════════════════════════════════════════════════════════════════
 
 /**
- * Draw the below-ground root system.
- * Anchored at top-center of the provided area.
+ * Draw the entire plant across both quadrants with a unified scale.
+ * Ground level sits at the bottom of shootGfx and the top of rootGfx.
  */
+export function drawPlant(
+  shootGfx: Graphics,
+  rootGfx: Graphics,
+  plant: SpeciesInstance,
+  genome: SpeciesGenome,
+  airW: number, airH: number,
+  soilW: number, soilH: number,
+): void {
+  shootGfx.clear();
+  rootGfx.clear();
+  if (airW < 1 || airH < 1 || soilW < 1 || soilH < 1) return;
+
+  // Phase 1: Build both structures in plant-space (meters, origin=ground)
+  const shoot = buildShootStructure(plant, genome);
+  const roots = buildRootStructure(plant);
+
+  // Phase 2: Compute unified scale
+  // Above-ground extent (negative Y = upward)
+  const aboveH = Math.abs(shoot.bounds.minY) || 0.05;
+  // Below-ground extent (positive Y = downward)
+  const belowH = roots.bounds.maxY || 0.05;
+  // Combined width (widest of the two)
+  const totalW = Math.max(
+    shoot.bounds.maxX - shoot.bounds.minX,
+    roots.bounds.maxX - roots.bounds.minX,
+  ) || 0.05;
+
+  const margin = 0.88;
+
+  // Scale that fits above-ground into air view (ground at bottom edge)
+  const airScaleY = (airH * margin) / aboveH;
+  // Scale that fits below-ground into soil view (surface at top edge)
+  const soilScaleY = (soilH * margin) / belowH;
+  // Scale that fits width into either view (use narrower)
+  const minViewW = Math.min(airW, soilW);
+  const widthScale = (minViewW * margin) / totalW;
+
+  // Unified scale: most restrictive wins — everything fits both views
+  const scale = Math.min(airScaleY, soilScaleY, widthScale);
+
+  // Horizontal center: use combined center of both bounds
+  const shootCenterX = (shoot.bounds.minX + shoot.bounds.maxX) / 2;
+  const rootCenterX = (roots.bounds.minX + roots.bounds.maxX) / 2;
+  const centerX = (shootCenterX + rootCenterX) / 2;
+
+  // Phase 3: Render shoot (Q1) — ground at bottom of air view
+  const airOffsetX = airW / 2 - centerX * scale;
+  const groundPixelY = airH; // Ground = bottom edge of air quadrant
+  const airOffsetY = groundPixelY; // Y=0 in plant-space maps to bottom of view
+
+  renderShootToGfx(shootGfx, shoot, scale, airOffsetX, airOffsetY, airW);
+
+  // Phase 3: Render roots (Q2) — surface at top of soil view
+  const soilOffsetX = soilW / 2 - centerX * scale;
+  const surfacePixelY = 0; // Surface = top edge of soil quadrant
+  const soilOffsetY = surfacePixelY; // Y=0 in plant-space maps to top of view
+
+  renderRootsToGfx(rootGfx, roots, scale, soilOffsetX, soilOffsetY, soilW, soilH);
+}
+
+// Legacy exports — drawPlant() should be used instead.
+export function drawShoot(
+  gfx: Graphics,
+  _plant: SpeciesInstance,
+  _genome: SpeciesGenome,
+  _viewW: number,
+  _viewH: number,
+): void {
+  gfx.clear();
+}
+
 export function drawRoots(
   gfx: Graphics,
+  _plant: SpeciesInstance,
+  _viewW: number,
+  _viewH: number,
+): void {
+  gfx.clear();
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  SHOOT STRUCTURE BUILDER
+// ══════════════════════════════════════════════════════════════════
+
+function buildShootStructure(
   plant: SpeciesInstance,
+  genome: SpeciesGenome,
+): ShootStructure {
+  const rng = new SeededRandom(plant.phenotypeSeed);
+  const bounds: BoundingBox = { minX: 0, maxX: 0, minY: 0, maxY: 0 };
+  const leaves: LeafCluster[] = [];
+  const flowers: FlowerData[] = [];
+  const fruits: FruitData[] = [];
+  const spikes: SpikeData[] = [];
+  const maxDepth = Math.min(plant.branchCount + 1, 7);
+  const hasSpikes = genome.activeTraits.has('spikes');
+
+  function expand(x: number, y: number, m: number): void {
+    bounds.minX = Math.min(bounds.minX, x - m);
+    bounds.maxX = Math.max(bounds.maxX, x + m);
+    bounds.minY = Math.min(bounds.minY, y - m);
+    bounds.maxY = Math.max(bounds.maxY, y + m);
+  }
+
+  function buildNode(
+    x: number, y: number,
+    angle: number, length: number, radius: number,
+    depth: number,
+  ): BranchNode {
+    const wobble = rng.range(-0.08, 0.08) * length;
+    const perp = angle + Math.PI / 2;
+    const midX = x + Math.cos(angle) * length * 0.5 + Math.cos(perp) * wobble;
+    const midY = y + Math.sin(angle) * length * 0.5 + Math.sin(perp) * wobble;
+    const endX = x + Math.cos(angle) * length;
+    const endY = y + Math.sin(angle) * length;
+
+    expand(x, y, radius);
+    expand(midX, midY, radius);
+    expand(endX, endY, radius);
+
+    const isTerminal = depth >= maxDepth - 1 || length < 0.02;
+
+    const node: BranchNode = {
+      startX: x, startY: y, midX, midY, endX, endY,
+      radius, depth, maxDepth, children: [],
+    };
+
+    // Spikes
+    if (hasSpikes && depth <= 1) {
+      const n = Math.max(1, Math.floor(length / 0.3));
+      for (let i = 1; i <= n; i++) {
+        const t = i / (n + 1);
+        const sx = x + (endX - x) * t;
+        const sy = y + (endY - y) * t;
+        const side = rng.next() > 0.5 ? 1 : -1;
+        const sa = angle + (Math.PI / 2) * side;
+        const sl = 0.05 + rng.next() * 0.08;
+        spikes.push({ x: sx, y: sy, angle: sa, length: sl });
+        expand(sx + Math.cos(sa) * sl, sy + Math.sin(sa) * sl, 0);
+      }
+    }
+
+    // Leaves along branches
+    if (plant.leafArea > 0.0005 && depth >= 1) {
+      const n = Math.max(1, Math.floor(plant.leafArea * 3 / Math.max(maxDepth, 1)));
+      for (let i = 0; i < n; i++) {
+        const t = rng.range(0.3, 1.0);
+        const sp = radius * 3 + 0.05;
+        const lx = x + (endX - x) * t + rng.range(-sp, sp);
+        const ly = y + (endY - y) * t + rng.range(-sp, sp);
+        const sz = 0.03 + Math.min(plant.leafArea * 0.005, 0.15);
+        leaves.push({ x: lx, y: ly, size: sz, shade: rng.range(0.7, 1.0) });
+        expand(lx, ly, sz);
+      }
+    }
+
+    // Terminal decorations
+    if (isTerminal) {
+      const cs = 0.04 + Math.min(plant.leafArea * 0.008, 0.2);
+      const lc = 3 + Math.floor(rng.next() * 4);
+      for (let i = 0; i < lc; i++) {
+        const la = angle + rng.range(-1.0, 1.0);
+        const ld = rng.range(0.01, cs * 1.5);
+        const lx = endX + Math.cos(la) * ld;
+        const ly = endY + Math.sin(la) * ld;
+        leaves.push({ x: lx, y: ly, size: cs * 0.7, shade: rng.range(0.6, 1.0) });
+        expand(lx, ly, cs);
+      }
+
+      if (plant.flowering > 0.1 && rng.next() < plant.flowering) {
+        const fo = cs * 0.8;
+        const fx = endX + rng.range(-fo, fo);
+        const fy = endY + rng.range(-fo, fo);
+        const fs = 0.02 + plant.flowering * 0.06;
+        flowers.push({ x: fx, y: fy, size: fs, progress: plant.flowering });
+        expand(fx, fy, fs * 1.5);
+      }
+
+      if (plant.fruit > 0.2 && rng.next() < plant.fruit) {
+        const fro = cs;
+        const frx = endX + rng.range(-fro, fro);
+        const fry = endY + rng.range(0.01, fro * 1.5);
+        const frs = 0.02 + plant.fruit * 0.05;
+        fruits.push({ x: frx, y: fry, size: frs, ripeness: plant.fruit });
+        expand(frx, fry, frs);
+      }
+
+      return node;
+    }
+
+    // Child branches — pipe model + gravitropism
+    const lateralCount = 1 + Math.floor(rng.next() * 2);
+    const hasLeader = rng.next() > 0.3;
+    const leaderFrac = hasLeader ? 0.65 : 0;
+    const lateralFrac = (1 - leaderFrac) / lateralCount;
+    const parentArea = radius * radius;
+
+    for (let i = 0; i < lateralCount; i++) {
+      const cArea = parentArea * lateralFrac;
+      const cRadius = Math.sqrt(cArea);
+      const spread = rng.range(0.3, 0.7);
+      const side = i === 0 ? -1 : 1;
+      let cAngle = angle + spread * side + rng.range(-0.1, 0.1);
+      // Clamp: upward hemisphere only (screen: -π=left, -π/2=up, 0=right)
+      cAngle = Math.max(-Math.PI + Math.PI / 9, Math.min(-Math.PI / 9, cAngle));
+      const cLen = length * rng.range(0.4, 0.65);
+      if (cLen > 0.01 && cRadius > 0.0005) {
+        node.children.push(buildNode(endX, endY, cAngle, cLen, cRadius, depth + 1));
+      }
+    }
+
+    if (hasLeader) {
+      const lArea = parentArea * leaderFrac;
+      const lRadius = Math.sqrt(lArea);
+      let lAngle = angle + rng.range(-0.12, 0.12);
+      lAngle = Math.max(-Math.PI + Math.PI / 9, Math.min(-Math.PI / 9, lAngle));
+      const lLen = length * rng.range(0.5, 0.7);
+      if (lLen > 0.01 && lRadius > 0.0005) {
+        node.children.push(buildNode(endX, endY, lAngle, lLen, lRadius, depth + 1));
+      }
+    }
+
+    return node;
+  }
+
+  const trunkLen = plant.height;
+  const trunkR = Math.max(plant.trunkRadius, 0.003);
+  const root = buildNode(0, 0, -Math.PI / 2, trunkLen, trunkR, 0);
+
+  return { root, bounds, leaves, flowers, fruits, spikes };
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  ROOT STRUCTURE BUILDER
+// ══════════════════════════════════════════════════════════════════
+
+function buildRootStructure(plant: SpeciesInstance): RootStructure {
+  const rng = new SeededRandom(plant.phenotypeSeed + 999);
+  const bounds: BoundingBox = { minX: 0, maxX: 0, minY: 0, maxY: 0 };
+  const hairs: RootHair[] = [];
+  const maxDepth = Math.min(7, Math.floor(Math.sqrt(plant.rootDepth) * 3) + 1);
+  const tapRootRadius = Math.max(plant.trunkRadius * 0.8, plant.rootDepth * 0.01, 0.003);
+
+  function expand(x: number, y: number, m: number): void {
+    bounds.minX = Math.min(bounds.minX, x - m);
+    bounds.maxX = Math.max(bounds.maxX, x + m);
+    bounds.minY = Math.min(bounds.minY, y - m);
+    bounds.maxY = Math.max(bounds.maxY, y + m);
+  }
+
+  function buildNode(
+    x: number, y: number,
+    angle: number, length: number, radius: number,
+    depth: number,
+  ): BranchNode {
+    const wobble = rng.range(-0.15, 0.15) * length;
+    const perp = angle + Math.PI / 2;
+    const midX = x + Math.cos(angle) * length * 0.45 + Math.cos(perp) * wobble;
+    const midY = y + Math.sin(angle) * length * 0.45 + Math.sin(perp) * wobble;
+    const endX = x + Math.cos(angle) * length;
+    const endY = y + Math.sin(angle) * length;
+
+    expand(x, y, radius);
+    expand(midX, midY, radius);
+    expand(endX, endY, radius);
+
+    const isTerminal = depth >= maxDepth - 1 || length < 0.015;
+
+    const node: BranchNode = {
+      startX: x, startY: y, midX, midY, endX, endY,
+      radius, depth, maxDepth, children: [],
+    };
+
+    // Terminal: root hairs
+    if (isTerminal) {
+      const hc = 2 + Math.floor(rng.next() * 4) + Math.floor(plant.rootDepth);
+      for (let i = 0; i < hc; i++) {
+        const ha = angle + rng.range(-1.3, 1.3);
+        const hl = 0.01 + rng.next() * 0.05 * Math.min(plant.rootDepth, 2);
+        hairs.push({ x: endX, y: endY, angle: ha, length: hl });
+        expand(endX + Math.cos(ha) * hl, endY + Math.sin(ha) * hl, 0);
+      }
+      return node;
+    }
+
+    // Laterals — pipe model, count scales with maturity
+    const maturityBonus = Math.min(plant.rootDepth * 0.3, 1.5);
+    const depthPenalty = depth * 0.3;
+    const lateralCount = Math.max(1, Math.floor(2 + maturityBonus - depthPenalty + rng.next()));
+    const hasTap = rng.next() > 0.25;
+    const tapFrac = hasTap ? 0.5 : 0;
+    const latFrac = (1 - tapFrac) / Math.max(lateralCount, 1);
+    const parentArea = radius * radius;
+
+    for (let i = 0; i < lateralCount; i++) {
+      const cArea = parentArea * latFrac;
+      const cRadius = Math.sqrt(cArea);
+      const spread = rng.range(0.35, 1.0);
+      const side = i % 2 === 0 ? -1 : 1;
+      let cAngle = angle + spread * side + rng.range(-0.2, 0.2);
+      // Clamp to downward hemisphere
+      cAngle = Math.max(Math.PI / 9, Math.min(Math.PI - Math.PI / 9, cAngle));
+      const cLen = length * rng.range(0.3, 0.55);
+      const spawnT = rng.range(0.2, 0.8);
+      const sx = x + (endX - x) * spawnT;
+      const sy = y + (endY - y) * spawnT;
+      if (cLen > 0.008 && cRadius > 0.0002) {
+        node.children.push(buildNode(sx, sy, cAngle, cLen, cRadius, depth + 1));
+      }
+    }
+
+    if (hasTap) {
+      const tArea = parentArea * tapFrac;
+      const tRadius = Math.sqrt(tArea);
+      let tAngle = angle + rng.range(-0.15, 0.15);
+      tAngle = Math.max(Math.PI / 9, Math.min(Math.PI - Math.PI / 9, tAngle));
+      const tLen = length * rng.range(0.4, 0.6);
+      if (tLen > 0.008 && tRadius > 0.0002) {
+        node.children.push(buildNode(endX, endY, tAngle, tLen, tRadius, depth + 1));
+      }
+    }
+
+    return node;
+  }
+
+  const root = buildNode(0, 0, Math.PI / 2, plant.rootDepth, tapRootRadius, 0);
+  return { root, bounds, hairs };
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  RENDERERS
+// ══════════════════════════════════════════════════════════════════
+
+function renderShootToGfx(
+  gfx: Graphics,
+  shoot: ShootStructure,
+  scale: number,
+  offsetX: number,
+  offsetY: number,
+  viewW: number,
+): void {
+  const { root, leaves, flowers, fruits, spikes } = shoot;
+
+  // Ground line at the very bottom of this view
+  gfx.moveTo(0, offsetY);
+  gfx.lineTo(viewW, offsetY);
+  gfx.stroke({ color: GROUND_COLOR, width: 2 });
+
+  // Branches
+  renderBranch(gfx, root, scale, offsetX, offsetY, BARK_COLOR, BARK_LIGHT);
+
+  // Spikes
+  for (const s of spikes) {
+    const sx = s.x * scale + offsetX;
+    const sy = s.y * scale + offsetY;
+    const sl = s.length * scale;
+    gfx.moveTo(sx, sy);
+    gfx.lineTo(sx + Math.cos(s.angle) * sl, sy + Math.sin(s.angle) * sl);
+    gfx.stroke({ color: 0x8b4513, width: Math.max(1, scale * 0.003) });
+  }
+
+  // Leaves
+  for (const l of leaves) {
+    const lx = l.x * scale + offsetX;
+    const ly = l.y * scale + offsetY;
+    const lw = Math.max(2, l.size * scale);
+    gfx.ellipse(lx, ly, lw, Math.max(1, lw * 0.5));
+    gfx.fill({ color: darkenColor(LEAF_GREEN, l.shade), alpha: 0.85 });
+  }
+
+  // Flowers
+  for (const f of flowers) {
+    const fx = f.x * scale + offsetX;
+    const fy = f.y * scale + offsetY;
+    const fs = Math.max(2, f.size * scale);
+    for (let i = 0; i < 5; i++) {
+      const pa = (i / 5) * Math.PI * 2;
+      gfx.circle(fx + Math.cos(pa) * fs, fy + Math.sin(pa) * fs, fs * 0.35);
+      gfx.fill({ color: FLOWER_PINK, alpha: 0.7 * f.progress });
+    }
+    gfx.circle(fx, fy, fs * 0.2);
+    gfx.fill(FLOWER_CENTER);
+  }
+
+  // Fruit
+  for (const fr of fruits) {
+    const frx = fr.x * scale + offsetX;
+    const fry = fr.y * scale + offsetY;
+    const frs = Math.max(2, fr.size * scale);
+    gfx.circle(frx, fry, frs);
+    gfx.fill({ color: FRUIT_RED, alpha: 0.6 + fr.ripeness * 0.4 });
+  }
+}
+
+function renderRootsToGfx(
+  gfx: Graphics,
+  roots: RootStructure,
+  scale: number,
+  offsetX: number,
+  offsetY: number,
   viewW: number,
   viewH: number,
 ): void {
-  gfx.clear();
+  const { root, hairs } = roots;
 
-  const rng = new SeededRandom(plant.phenotypeSeed + 999);
+  // Soil surface at top of this view
+  gfx.moveTo(0, offsetY);
+  gfx.lineTo(viewW, offsetY);
+  gfx.stroke({ color: GROUND_COLOR, width: 2 });
 
-  // Auto-zoom: roots always fill ~60% of view depth
-  const targetRatio = 0.6;
-  const effectiveDepth = Math.max(plant.rootDepth, 0.08);
-  const scale = (viewH * targetRatio) / effectiveDepth;
-
-  const baseX = viewW / 2;
-  const baseY = 15; // Soil surface near top
-
-  // Soil surface line
-  gfx.moveTo(0, baseY);
-  gfx.lineTo(viewW, baseY);
-  gfx.stroke({ color: 0x4a3728, width: 2 });
-
-  // Draw a soil gradient background hint
-  gfx.rect(0, baseY, viewW, viewH - baseY);
+  // Soil background
+  gfx.rect(0, offsetY, viewW, viewH - offsetY);
   gfx.fill({ color: 0x3d2b1f, alpha: 0.15 });
 
-  const rootH = plant.rootDepth * scale;
-  const rootW = Math.max(2, plant.trunkRadius * scale * 2);
+  // Root branches
+  renderBranch(gfx, root, scale, offsetX, offsetY, ROOT_DARK, ROOT_LIGHT);
 
-  drawRoot(gfx, rng, {
-    x: baseX,
-    y: baseY,
-    angle: Math.PI / 2, // Straight down
-    length: rootH,
-    width: rootW,
-    depth: 0,
-    maxDepth: Math.min(5, Math.floor(plant.rootDepth / 0.2) + 1),
-  });
+  // Root hairs
+  for (const h of hairs) {
+    const hx = h.x * scale + offsetX;
+    const hy = h.y * scale + offsetY;
+    const hl = h.length * scale;
+    gfx.moveTo(hx, hy);
+    gfx.lineTo(hx + Math.cos(h.angle) * hl, hy + Math.sin(h.angle) * hl);
+    gfx.stroke({ color: ROOT_LIGHT, width: 0.5, alpha: 0.5 });
+  }
 }
 
-interface RootParams {
-  x: number;
-  y: number;
-  angle: number;
-  length: number;
-  width: number;
-  depth: number;
-  maxDepth: number;
-}
+/** Shared recursive renderer for both branch and root nodes. */
+function renderBranch(
+  gfx: Graphics,
+  node: BranchNode,
+  scale: number,
+  offsetX: number,
+  offsetY: number,
+  darkColor: number,
+  lightColor: number,
+): void {
+  const x1 = node.startX * scale + offsetX;
+  const y1 = node.startY * scale + offsetY;
+  const mx = node.midX * scale + offsetX;
+  const my = node.midY * scale + offsetY;
+  const x2 = node.endX * scale + offsetX;
+  const y2 = node.endY * scale + offsetY;
+  const w = Math.max(1, node.radius * 2 * scale);
 
-function drawRoot(gfx: Graphics, rng: SeededRandom, p: RootParams): void {
-  if (p.length < 2) return;
+  const color = node.depth === 0
+    ? darkColor
+    : lerpColor(darkColor, lightColor, node.depth / Math.max(node.maxDepth, 1));
 
-  // Roots wobble more than branches
-  const wobble = rng.range(-12, 12);
-  const perpAngle = p.angle + Math.PI / 2;
-
-  const midX = p.x + Math.cos(p.angle) * p.length * 0.45 + Math.cos(perpAngle) * wobble;
-  const midY = p.y + Math.sin(p.angle) * p.length * 0.45 + Math.sin(perpAngle) * wobble;
-  const endX = p.x + Math.cos(p.angle) * p.length;
-  const endY = p.y + Math.sin(p.angle) * p.length;
-
-  const color = lerpColor(ROOT_DARK, ROOT_LIGHT, p.depth / Math.max(p.maxDepth, 1));
-  const w = Math.max(1, p.width);
-
-  // Draw as two segments through midpoint for curve
-  gfx.moveTo(p.x, p.y);
-  gfx.lineTo(midX, midY);
+  gfx.moveTo(x1, y1);
+  gfx.lineTo(mx, my);
   gfx.stroke({ color, width: w });
 
-  gfx.moveTo(midX, midY);
-  gfx.lineTo(endX, endY);
-  gfx.stroke({ color, width: w * 0.7 });
+  gfx.moveTo(mx, my);
+  gfx.lineTo(x2, y2);
+  gfx.stroke({ color, width: w * 0.85 });
 
-  // ── Terminal: root hairs ──
-  if (p.depth >= p.maxDepth - 1 || p.length < 10) {
-    const hairCount = 3 + Math.floor(rng.next() * 5);
-    for (let i = 0; i < hairCount; i++) {
-      const hAngle = p.angle + rng.range(-1.3, 1.3);
-      const hLen = 2 + rng.next() * 10;
-      gfx.moveTo(endX, endY);
-      gfx.lineTo(endX + Math.cos(hAngle) * hLen, endY + Math.sin(hAngle) * hLen);
-      gfx.stroke({ color: ROOT_LIGHT, width: 0.5, alpha: 0.5 });
-    }
-    return;
-  }
-
-  // ── Lateral roots ──
-  const childCount = 2 + Math.floor(rng.next() * 2);
-  for (let i = 0; i < childCount; i++) {
-    const spread = rng.range(0.35, 1.0);
-    const side = i % 2 === 0 ? -1 : 1;
-    const childAngle = p.angle + spread * side + rng.range(-0.2, 0.2);
-    const childLength = p.length * rng.range(0.35, 0.6);
-    const childWidth = p.width * 0.45;
-
-    // Spawn from along the root, not just the tip
-    const spawnT = rng.range(0.25, 0.75);
-    const spawnX = p.x + (endX - p.x) * spawnT;
-    const spawnY = p.y + (endY - p.y) * spawnT;
-
-    drawRoot(gfx, rng, {
-      x: spawnX,
-      y: spawnY,
-      angle: childAngle,
-      length: childLength,
-      width: childWidth,
-      depth: p.depth + 1,
-      maxDepth: p.maxDepth,
-    });
-  }
-
-  // Continuation (taproot leader)
-  if (rng.next() > 0.3) {
-    drawRoot(gfx, rng, {
-      x: endX,
-      y: endY,
-      angle: p.angle + rng.range(-0.2, 0.2),
-      length: p.length * rng.range(0.4, 0.6),
-      width: p.width * 0.6,
-      depth: p.depth + 1,
-      maxDepth: p.maxDepth,
-    });
+  for (const child of node.children) {
+    renderBranch(gfx, child, scale, offsetX, offsetY, darkColor, lightColor);
   }
 }
