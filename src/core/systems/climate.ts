@@ -71,6 +71,7 @@ export function updateClimate(state: SimulationState): void {
   const grid = state.grid;
 
   if (climate.isRaining) {
+    console.log(`RAIN: humid=${climate.humidity.toFixed(2)} chance=${rainChance.toFixed(2)} roll=${rainRoll.toFixed(3)}`);
     const rainAmount = 0.02; // Gentle rain per tick
     for (let y = 0; y < GRID_HEIGHT; y++) {
       const row = grid[y];

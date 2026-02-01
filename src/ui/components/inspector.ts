@@ -26,12 +26,20 @@ export function initInspector(layout: QuadrantElements): void {
   soilInfo.style.cssText = PANEL_STYLE + 'bottom:10px;left:10px;';
   layout.soilView.appendChild(soilInfo);
 
-  // Biology scan panel — lives in Q4 (evolution quadrant), top-right
+  // Biology scan panel — lives in Q4 right column (created by evolution.ts)
   const bioInfo = document.createElement('div');
   bioInfo.style.cssText =
-    PANEL_STYLE +
-    'top:10px;right:10px;max-height:45%;overflow-y:auto;z-index:10;';
-  layout.evolutionUI.appendChild(bioInfo);
+    'color:#e0e0e0;font-family:monospace;font-size:12px;' +
+    'background:rgba(0,0,0,0.75);padding:10px;' +
+    'border-radius:4px;line-height:1.7;';
+
+  // Defer append until Q4 columns exist (evolution.ts runs first in main.ts)
+  const bioTarget = document.getElementById('q4-bio');
+  if (bioTarget) {
+    bioTarget.appendChild(bioInfo);
+  } else {
+    layout.evolutionUI.appendChild(bioInfo);
+  }
 
   function update(): void {
     const { climate, selection, grid } = state;

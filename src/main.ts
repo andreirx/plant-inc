@@ -80,11 +80,11 @@ async function bootstrap(): Promise<void> {
     }
   });
 
-  // --- HUD: Inspector panels on Air and Soil quadrants ---
-  initInspector(quadrants);
-
-  // --- Evolution UI in Q4 ---
+  // --- Evolution UI in Q4 (must run before inspector to create #q4-bio) ---
   initEvolutionUI(quadrants);
+
+  // --- HUD: Inspector panels on Air, Soil, and Q4 bio column ---
+  initInspector(quadrants);
 
   // --- Speed Controls at bottom of Q4 ---
   initSpeedControls(quadrants);

@@ -10,15 +10,33 @@ import { type QuadrantElements } from '../layout';
 
 export function initEvolutionUI(layout: QuadrantElements): void {
   const container = layout.evolutionUI;
-  container.style.cssText += 'padding:10px;padding-top:calc(45% + 20px);overflow-y:auto;font-family:monospace;';
+  container.style.cssText += 'font-family:monospace;';
+
+  // Two-column layout: left = traits, right = biology scan
+  const columns = document.createElement('div');
+  columns.style.cssText =
+    'display:flex;gap:8px;padding:10px;padding-bottom:60px;' +
+    'height:100%;box-sizing:border-box;overflow:hidden;';
+  container.appendChild(columns);
+
+  // Left column: species info + trait list
+  const leftCol = document.createElement('div');
+  leftCol.style.cssText = 'flex:1;min-width:0;overflow-y:auto;';
+  columns.appendChild(leftCol);
+
+  // Right column: biology scan (populated by inspector.ts)
+  const rightCol = document.createElement('div');
+  rightCol.id = 'q4-bio';
+  rightCol.style.cssText = 'flex:1;min-width:0;overflow-y:auto;';
+  columns.appendChild(rightCol);
 
   const header = document.createElement('div');
   header.style.marginBottom = '10px';
-  container.appendChild(header);
+  leftCol.appendChild(header);
 
   const traitList = document.createElement('div');
   traitList.style.cssText = 'display:grid;gap:6px;';
-  container.appendChild(traitList);
+  leftCol.appendChild(traitList);
 
   function render(): void {
     const sp = state.species;

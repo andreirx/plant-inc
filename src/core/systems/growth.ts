@@ -31,7 +31,7 @@
  *    Health ≤ 0 → plant dies and is removed.
  */
 
-import { GRID_WIDTH, GRID_HEIGHT } from '../constants';
+import { GRID_WIDTH, GRID_HEIGHT, TICKS_PER_DAY } from '../constants';
 import { type SimulationState, type SpeciesInstance, type GridCell } from '../state';
 import { type StatKey } from '../data/traits';
 
@@ -91,6 +91,24 @@ export function updateGrowth(state: SimulationState): void {
       if (cell.plant && cell.plant.health <= 0) {
         cell.plant = null;
       }
+    }
+  }
+
+  // Daily debug log for the selected plant
+  if (state.selection && state.tick % TICKS_PER_DAY === 0) {
+    const sel = state.selection;
+    const cell = state.grid[sel.y][sel.x];
+    if (cell.plant) {
+      const p = cell.plant;
+      const c = state.climate;
+      console.log(
+        `=== DAY ${c.dayOfYear} (Year ${c.year}) ===\n` +
+        `ATMO: sun=${c.sunlight.toFixed(2)} temp=${c.temperature.toFixed(1)} humid=${c.humidity.toFixed(2)} rain=${c.isRaining}\n` +
+        `SOIL: moisture=${cell.moisture.toFixed(3)} N=${cell.nutrients.nitrogen.toFixed(2)} P=${cell.nutrients.phosphorus.toFixed(2)} K=${cell.nutrients.potassium.toFixed(2)}\n` +
+        `PLANT: age=${p.age} hp=${p.health.toFixed(3)} nrg=${p.energy.toFixed(3)} biomass=${p.biomass.toFixed(4)}\n` +
+        `MORPH: h=${p.height.toFixed(4)} roots=${p.rootDepth.toFixed(4)} leaves=${p.leafArea.toFixed(5)} trunk=${p.trunkRadius.toFixed(5)}\n` +
+        `METAB: photo=${p._dbgPhotosynthesis.toFixed(5)} resp=${p._dbgRespiration.toFixed(5)} net=${(p._dbgPhotosynthesis - p._dbgRespiration).toFixed(5)}`,
+      );
     }
   }
 }
