@@ -94,8 +94,9 @@ export function updateGrowth(state: SimulationState): void {
     }
   }
 
-  // Daily debug log for the selected plant
-  if (state.selection && state.tick % TICKS_PER_DAY === 0) {
+  // Daily debug log for the selected plant (at midday for meaningful sunlight values)
+  const MIDDAY_TICK = Math.floor(TICKS_PER_DAY / 2);
+  if (state.selection && state.tick % TICKS_PER_DAY === MIDDAY_TICK) {
     const sel = state.selection;
     const cell = state.grid[sel.y][sel.x];
     if (cell.plant) {
