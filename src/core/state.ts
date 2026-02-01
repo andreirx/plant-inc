@@ -1,8 +1,11 @@
 import { GRID_WIDTH, GRID_HEIGHT } from './constants';
+import { type NutrientProfile } from './data/soil';
+import { type SpeciesGenome, BASE_STATS, computeStats } from './data/traits';
 
 export interface GridCell {
+  soilId: string;
   moisture: number;
-  nutrients: number;
+  nutrients: NutrientProfile;
   rootDensity: number;
 }
 
@@ -18,6 +21,7 @@ export interface SimulationState {
   paused: boolean;
   grid: GridCell[][];
   climate: ClimateState;
+  species: SpeciesGenome;
 }
 
 function createGrid(width: number, height: number): GridCell[][] {
@@ -26,14 +30,26 @@ function createGrid(width: number, height: number): GridCell[][] {
     const row: GridCell[] = [];
     for (let x = 0; x < width; x++) {
       row.push({
+        soilId: 'silt', // Default; overwritten by world generation
         moisture: 0.5,
-        nutrients: 0.3,
+        nutrients: { nitrogen: 0.3, phosphorus: 0.3, potassium: 0.3 },
         rootDensity: 0,
       });
     }
     grid.push(row);
   }
   return grid;
+}
+
+function createDefaultSpecies(): SpeciesGenome {
+  const genome: SpeciesGenome = {
+    name: 'Seedling',
+    color: 0x4caf50,
+    activeTraits: new Set(['base_roots']),
+    stats: { ...BASE_STATS },
+  };
+  genome.stats = computeStats(genome);
+  return genome;
 }
 
 export function createInitialState(): SimulationState {
@@ -47,6 +63,7 @@ export function createInitialState(): SimulationState {
       sunlight: 1.0,
       windSpeed: 0.2,
     },
+    species: createDefaultSpecies(),
   };
 }
 
