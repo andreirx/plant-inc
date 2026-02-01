@@ -100,6 +100,7 @@ interface ShootStructure {
   flowers: FlowerData[];
   fruits: FruitData[];
   spikes: SpikeData[];
+  leafColor: number;
 }
 
 interface RootStructure {
@@ -114,7 +115,6 @@ interface RootStructure {
 
 const BARK_COLOR = 0x5d3a1a;
 const BARK_LIGHT = 0x7a5230;
-const LEAF_GREEN = 0x2d8a4e;
 const FLOWER_PINK = 0xffaacc;
 const FLOWER_CENTER = 0xffee55;
 const FRUIT_RED = 0xe53935;
@@ -295,9 +295,11 @@ function buildShootStructure(
       }
     }
 
-    // Leaves along this branch
-    if (plant.leafArea > 0.0005) {
-      const n = Math.max(1, Math.floor(plant.leafArea * 2 / Math.max(maxBranchDepth, 1)));
+    // Leaves along this branch — scaled by visibleLeafArea (deciduous drop)
+    const leafRatio = plant.visibleLeafArea / Math.max(plant.leafArea, 0.001);
+    if (plant.visibleLeafArea > 0.0005) {
+      const baseCount = Math.max(1, Math.floor(plant.leafArea * 2 / Math.max(maxBranchDepth, 1)));
+      const n = Math.max(0, Math.floor(baseCount * leafRatio));
       for (let i = 0; i < n; i++) {
         const t = rng.range(0.3, 1.0);
         const sp = radius * 3 + 0.05;
@@ -312,7 +314,8 @@ function buildShootStructure(
     // Terminal decorations
     if (isTerminal) {
       const cs = 0.04 + Math.min(plant.leafArea * 0.008, 0.2);
-      const lc = 3 + Math.floor(rng.next() * 4);
+      const baseLc = 3 + Math.floor(rng.next() * 4);
+      const lc = Math.max(0, Math.floor(baseLc * leafRatio));
       for (let i = 0; i < lc; i++) {
         const la = angle + rng.range(-1.0, 1.0);
         const ld = rng.range(0.01, cs * 1.5);
@@ -452,7 +455,7 @@ function buildShootStructure(
     }
   }
 
-  return { root: trunkNode, bounds, leaves, flowers, fruits, spikes };
+  return { root: trunkNode, bounds, leaves, flowers, fruits, spikes, leafColor: plant.leafColor };
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -661,7 +664,7 @@ function renderShootToGfx(
     const ly = l.y * scale + offsetY;
     const lw = Math.max(2, l.size * scale);
     gfx.ellipse(lx, ly, lw, Math.max(1, lw * 0.5));
-    gfx.fill({ color: darkenColor(LEAF_GREEN, l.shade), alpha: 0.85 });
+    gfx.fill({ color: darkenColor(shoot.leafColor, l.shade), alpha: 0.85 });
   }
 
   // Flowers

@@ -144,6 +144,8 @@ export function initInspector(layout: QuadrantElements): void {
           '<b>MORPHOLOGY</b>',
           `Height: ${p.height.toFixed(2)}m | Trunk: ${(p.trunkRadius * 100).toFixed(1)}cm`,
           `Roots: ${p.rootDepth.toFixed(2)}m | Leaves: ${p.leafArea.toFixed(3)}m²`,
+          `Canopy: ${(p.visibleLeafArea / Math.max(p.leafArea, 0.001) * 100).toFixed(0)}%` +
+            (p.dormant ? ' <span style="color:#88f">DORMANT</span>' : ''),
           `Branches: ${p.branchCount}`,
           p.flowering > 0
             ? `Flowering: ${(p.flowering * 100).toFixed(0)}%`

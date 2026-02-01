@@ -20,6 +20,12 @@ export interface SpeciesInstance {
   flowering: number;    // 0.0 (none) -> 1.0 (full bloom)
   fruit: number;        // 0.0 (none) -> 1.0 (ripe, ready to seed)
 
+  // Seasonal phenology
+  visibleLeafArea: number;  // Currently displayed leaves (≤ leafArea)
+  leafColor: number;        // Current leaf color (shifts in autumn)
+  dormant: boolean;         // Winter dormancy state
+  lastFruitDrop: number;    // Tick when fruit last dropped (for cooldown)
+
   // Visual DNA — per-instance random variation for procedural rendering
   phenotypeSeed: number;
 
@@ -105,6 +111,10 @@ export function createPlantInstance(genomeId: string): SpeciesInstance {
     branchCount: 0,
     flowering: 0,
     fruit: 0,
+    visibleLeafArea: 0.005,
+    leafColor: 0x2d8a4e,
+    dormant: false,
+    lastFruitDrop: 0,
     phenotypeSeed: Math.random(),
     _dbgPhotosynthesis: 0,
     _dbgRespiration: 0,

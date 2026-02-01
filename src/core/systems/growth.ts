@@ -80,6 +80,23 @@ const HEALTH_RECOVERY = 0.003;   // Recovery per tick when well-fed
 const STARVATION_DRAIN = 0.012;  // Health loss per tick when starving
 const OCEAN_DAMAGE = 0.1;        // Health loss per tick for plants in water
 
+// ── Seasonal phenology ──────────────────────────────────────────
+const AUTUMN_START = 182;            // Day of year autumn begins
+const WINTER_START = 273;            // Day of year winter begins
+const SPRING_END = 91;              // Day of year spring ends
+const AUTUMN_LEAF_DROP_RATE = 0.03;  // 3% of visibleLeafArea lost per day
+const SPRING_LEAF_REGROW_RATE = 0.05; // 5% regrown per day
+const SPRING_REGROW_COST = 0.5;      // Energy per m² of leaf regenerated
+const DORMANCY_TEMP_THRESHOLD = 5;   // °C — dormancy breaks above this
+const DORMANCY_RESPIRATION_MULT = 0.3; // 70% reduction during dormancy
+const FRUIT_MATURITY_TICKS = 50;     // Ticks at fruit=1.0 before drop
+const FRUIT_COOLDOWN_TICKS = 200;    // No flowering for this long after fruit drop
+const LEAF_GREEN = 0x2d8a4e;
+const LEAF_YELLOW_GREEN = 0x9acd32;
+const LEAF_GOLDENROD = 0xdaa520;
+const LEAF_ORANGE = 0xff8c00;
+const LEAF_BROWN = 0x8b4513;
+
 export function updateGrowth(state: SimulationState): void {
   const { climate, species } = state;
   const stats = species.stats;
@@ -97,7 +114,7 @@ export function updateGrowth(state: SimulationState): void {
         continue;
       }
 
-      simulatePlant(cell.plant, cell, climate, stats);
+      simulatePlant(cell.plant, cell, climate, stats, state);
 
       if (cell.plant && cell.plant.health <= 0) {
         cell.plant = null;
@@ -128,8 +145,9 @@ export function updateGrowth(state: SimulationState): void {
 function simulatePlant(
   plant: SpeciesInstance,
   soil: GridCell,
-  climate: { sunlight: number; temperature: number; humidity: number },
+  climate: { sunlight: number; temperature: number; humidity: number; dayOfYear: number },
   stats: Record<StatKey, number>,
+  state: SimulationState,
 ): void {
   plant.age++;
 
@@ -181,7 +199,8 @@ function simulatePlant(
     waterFactor = 0.05 + 0.95 * (waterAbsorbed - STOMATA_CLOSE) / (STOMATA_OPEN - STOMATA_CLOSE);
   }
 
-  const effectiveLeafArea = plant.leafArea + 0.005; // Cotyledons provide minimal photosynthesis
+  // Use visibleLeafArea for photosynthesis — dormant/deciduous trees have no functional leaves
+  const effectiveLeafArea = plant.visibleLeafArea + 0.005; // Cotyledons provide minimal photosynthesis
 
   // Self-shading: large canopies shade their own lower leaves.
   // Follows a saturating curve — doubling leaf area does NOT double photosynthesis.
@@ -208,10 +227,11 @@ function simulatePlant(
   // ═══════════════════════════════════════════════════════════════
 
   // Cellular respiration: living tissue (leaves, root tips, meristems) costs more
-  // than structural wood. Leaves are the main cost since they're metabolically active.
-  const livingTissue = plant.leafArea * 3 + plant.rootDepth * 0.5 + plant.height * 0.3;
+  // than structural wood. Use visibleLeafArea — dropped leaves don't respire.
+  const livingTissue = plant.visibleLeafArea * 3 + plant.rootDepth * 0.5 + plant.height * 0.3;
   const structuralCost = plant.biomass * 0.001;
-  const maintenanceCost = livingTissue * RESPIRATION_RATE + structuralCost;
+  const dormancyMult = plant.dormant ? DORMANCY_RESPIRATION_MULT : 1.0;
+  const maintenanceCost = (livingTissue * RESPIRATION_RATE + structuralCost) * dormancyMult;
 
   // Debug: record energy flow for inspector
   plant._dbgPhotosynthesis = glucoseProduced;
@@ -228,7 +248,8 @@ function simulatePlant(
   // Dynamic threshold: seedlings can grow with less surplus (biomass < 0.1 kg)
   const dynamicThreshold = Math.min(GROWTH_THRESHOLD, plant.biomass * 50 + 1);
 
-  if (plant.energy > dynamicThreshold) {
+  // Dormant plants do not grow — meristems are inactive
+  if (!plant.dormant && plant.energy > dynamicThreshold) {
     // Seedlings MUST grow leaves first or they starve
     if (plant.leafArea < 0.01) {
       const leafInvestment = Math.min(plant.energy - dynamicThreshold, 2.0);
@@ -299,7 +320,11 @@ function simulatePlant(
   // 5. REPRODUCTION — Flowering → Fruiting when mature
   // ═══════════════════════════════════════════════════════════════
 
-  if (plant.age > MATURITY_AGE && plant.health > 0.7 && plant.energy > 10) {
+  const ticksSinceFruitDrop = state.tick - plant.lastFruitDrop;
+  const fruitOnCooldown = plant.lastFruitDrop > 0 && ticksSinceFruitDrop < FRUIT_COOLDOWN_TICKS;
+
+  if (!plant.dormant && !fruitOnCooldown &&
+      plant.age > MATURITY_AGE && plant.health > 0.7 && plant.energy > 10) {
     if (plant.flowering < 1.0) {
       // Phosphorus accelerates flowering (real biology: P is key for reproduction)
       const flowerBoost = 1 + pAbsorbed * 5;
@@ -310,6 +335,81 @@ function simulatePlant(
       plant.energy -= FRUIT_ENERGY_COST;
     }
   }
+
+  // ═══════════════════════════════════════════════════════════════
+  // 5b. FLOWER SENESCENCE & FRUIT DROP
+  // ═══════════════════════════════════════════════════════════════
+
+  // Flowers wilt after fruit is ripe
+  if (plant.fruit >= 1.0 && plant.flowering > 0) {
+    plant.flowering = Math.max(0, plant.flowering - 0.05);
+  }
+
+  // Fruit drops after maturity period
+  if (plant.fruit >= 1.0) {
+    // Track how long fruit has been ripe (approximate via energy cost as proxy)
+    // Use a simple tick check: fruit stays ripe for FRUIT_MATURITY_TICKS
+    if (plant.lastFruitDrop === 0 || ticksSinceFruitDrop > FRUIT_COOLDOWN_TICKS + FRUIT_MATURITY_TICKS) {
+      // First time reaching 1.0 or enough time has passed — start maturity countdown
+      // We use age modulo to approximate — drop when fruit has been at 1.0 for ~50 ticks
+      if (plant.age % FRUIT_MATURITY_TICKS === 0) {
+        plant.fruit = 0;
+        plant.flowering = 0;
+        plant.lastFruitDrop = state.tick;
+      }
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // 5c. SEASONAL PHENOLOGY — Deciduous leaf cycle & dormancy
+  // ═══════════════════════════════════════════════════════════════
+
+  const dayOfYear = climate.dayOfYear;
+
+  if (dayOfYear >= AUTUMN_START && dayOfYear < WINTER_START) {
+    // ── AUTUMN: leaves change color and drop ──
+    const autumnProgress = (dayOfYear - AUTUMN_START) / (WINTER_START - AUTUMN_START); // 0..1
+
+    // Leaf drop: visibleLeafArea decreases toward 0
+    const dropPerTick = AUTUMN_LEAF_DROP_RATE / TICKS_PER_DAY;
+    const dropped = plant.visibleLeafArea * dropPerTick;
+    plant.visibleLeafArea = Math.max(0, plant.visibleLeafArea - dropped);
+
+    // Dropped leaves return small nutrient to soil (decomposition)
+    soil.nutrients.nitrogen = Math.min(1.0, soil.nutrients.nitrogen + dropped * 0.01);
+
+    // Leaf color: green → yellow-green → goldenrod → orange → brown
+    plant.leafColor = lerpAutumnColor(autumnProgress);
+
+  } else if (dayOfYear >= WINTER_START || dayOfYear < SPRING_END) {
+    // ── WINTER: dormancy ──
+    plant.dormant = true;
+    plant.visibleLeafArea = Math.max(0, plant.visibleLeafArea * (1 - 0.01 / TICKS_PER_DAY)); // Any remaining leaves drop
+    plant.leafColor = LEAF_BROWN;
+
+  } else if (dayOfYear >= SPRING_END && dayOfYear < AUTUMN_START) {
+    // ── SPRING / SUMMER: break dormancy, regrow leaves ──
+
+    // Break dormancy when warm enough
+    if (plant.dormant && climate.temperature > DORMANCY_TEMP_THRESHOLD) {
+      plant.dormant = false;
+    }
+
+    if (!plant.dormant) {
+      // Regrow visibleLeafArea toward leafArea
+      if (plant.visibleLeafArea < plant.leafArea) {
+        const regrowPerTick = SPRING_LEAF_REGROW_RATE * plant.leafArea / TICKS_PER_DAY;
+        const regrown = Math.min(regrowPerTick, plant.leafArea - plant.visibleLeafArea);
+        plant.visibleLeafArea += regrown;
+        // Leaf regrowth costs energy
+        plant.energy -= regrown * SPRING_REGROW_COST;
+      }
+      plant.leafColor = LEAF_GREEN;
+    }
+  }
+
+  // Keep visibleLeafArea in sync: never exceed actual leafArea
+  plant.visibleLeafArea = Math.min(plant.visibleLeafArea, plant.leafArea);
 
   // ═══════════════════════════════════════════════════════════════
   // 6. STRESS & HEALTH
@@ -326,4 +426,23 @@ function simulatePlant(
     plant.health += kAbsorbed * 0.003;
     plant.energy = 0;
   }
+}
+
+/** Interpolate through the autumn color palette based on progress 0..1 */
+function lerpAutumnColor(progress: number): number {
+  const colors = [LEAF_GREEN, LEAF_YELLOW_GREEN, LEAF_GOLDENROD, LEAF_ORANGE, LEAF_BROWN];
+  const idx = progress * (colors.length - 1);
+  const lo = Math.floor(idx);
+  const hi = Math.min(lo + 1, colors.length - 1);
+  const t = idx - lo;
+  return lerpColorChannels(colors[lo], colors[hi], t);
+}
+
+function lerpColorChannels(a: number, b: number, t: number): number {
+  const ar = (a >> 16) & 0xff, ag = (a >> 8) & 0xff, ab = a & 0xff;
+  const br = (b >> 16) & 0xff, bg = (b >> 8) & 0xff, bb = b & 0xff;
+  const r = Math.round(ar + (br - ar) * t);
+  const g = Math.round(ag + (bg - ag) * t);
+  const bl = Math.round(ab + (bb - ab) * t);
+  return (r << 16) | (g << 8) | bl;
 }
