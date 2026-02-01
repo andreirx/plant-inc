@@ -10,44 +10,65 @@ interface GameLoop {
   isRunning: () => boolean;
 }
 
-/**
- * Base ticks per frame at 1x speed.
- * At 60fps with TICK_RATE=20: ~1 tick every 3 frames at 1x.
- * We use a fractional accumulator so sub-1x speeds work correctly.
- */
-const BASE_TICKS_PER_FRAME = 1;
+/** Hard cap on ticks per frame to prevent browser lock-up at high speeds */
+const MAX_TICKS_PER_FRAME = 200;
 
 /**
- * Creates a game loop where speed controls determine how many real
- * simulation ticks run per animation frame.
+ * Wall-clock accumulator game loop.
  *
- *   0.1x → ~0.1 ticks/frame (1 tick every ~10 frames)
- *   1x   → 1 tick/frame
- *   10x  → 10 ticks/frame
- *   50x  → 50 ticks/frame
+ * Ticks are tied to real elapsed time, not frame count.
+ * At TICK_RATE = 20Hz, TICK_DURATION_MS = 50ms:
  *
- * Every tick is a real, full simulation step. No fake time stretching.
+ *   0.1x → accumulates 1.67ms/frame → 1 tick every ~30 frames (~2 ticks/sec)
+ *   1x   → accumulates 16.67ms/frame → 1 tick every ~3 frames (20 ticks/sec)
+ *   10x  → accumulates 166.7ms/frame → ~3 ticks/frame (200 ticks/sec)
+ *   50x  → accumulates 833ms/frame → ~16 ticks/frame (1000 ticks/sec, capped)
+ *
+ * Every tick is a real, full simulation step. The render receives an
+ * interpolation factor (0..1) for smooth visuals between tick boundaries.
  */
 export function createGameLoop(update: UpdateFn, render: RenderFn): GameLoop {
+  let accumulator = 0;
+  let lastTime = 0;
   let rafId = 0;
   let running = false;
-  let tickDebt = 0; // Fractional tick accumulator for sub-1x speeds
 
-  function frame(): void {
+  function frame(currentTime: number): void {
     if (!running) return;
 
-    if (!state.paused) {
-      // How many ticks to run this frame
-      tickDebt += BASE_TICKS_PER_FRAME * state.timeScale;
-      const ticksThisFrame = Math.floor(tickDebt);
-      tickDebt -= ticksThisFrame;
+    if (lastTime === 0) {
+      lastTime = currentTime;
+    }
 
-      for (let i = 0; i < ticksThisFrame; i++) {
+    let deltaMs = currentTime - lastTime;
+    lastTime = currentTime;
+
+    // Cap raw delta to prevent spiral of death after tab-away
+    if (deltaMs > 200) {
+      deltaMs = 200;
+    }
+
+    if (!state.paused) {
+      accumulator += deltaMs * state.timeScale;
+
+      // Run fixed-timestep ticks from the accumulated time
+      let tickCount = 0;
+      while (accumulator >= TICK_DURATION_MS && tickCount < MAX_TICKS_PER_FRAME) {
         update(TICK_DURATION_MS);
+        accumulator -= TICK_DURATION_MS;
+        tickCount++;
+      }
+
+      // If we hit the cap, drop leftover to prevent unbounded buildup
+      if (tickCount >= MAX_TICKS_PER_FRAME) {
+        accumulator = 0;
       }
     }
 
-    render(0);
+    // Interpolation factor for smooth rendering between tick boundaries
+    const interpolation = accumulator / TICK_DURATION_MS;
+    render(interpolation);
+
     rafId = requestAnimationFrame(frame);
   }
 
@@ -55,7 +76,8 @@ export function createGameLoop(update: UpdateFn, render: RenderFn): GameLoop {
     start(): void {
       if (running) return;
       running = true;
-      tickDebt = 0;
+      lastTime = 0;
+      accumulator = 0;
       rafId = requestAnimationFrame(frame);
     },
     stop(): void {
