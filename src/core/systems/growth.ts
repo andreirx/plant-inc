@@ -169,11 +169,11 @@ function simulatePlant(
   // 3. PHLOEM TRANSPORT — Distribute glucose, pay maintenance costs
   // ═══════════════════════════════════════════════════════════════
 
-  // Cellular respiration: metabolically active tissue (leaves, root tips) costs more
-  // than structural wood. Scale with active tissue, not total mass.
-  const activeTissue = plant.leafArea * 10 + plant.rootDepth * 2;
-  const structuralCost = plant.biomass * 0.002; // Wood barely respires
-  const maintenanceCost = activeTissue * RESPIRATION_RATE + structuralCost;
+  // Cellular respiration: living tissue (leaves, root tips, meristems) costs more
+  // than structural wood. A plant with more leaves produces AND consumes more.
+  const livingTissue = plant.leafArea * 5 + plant.rootDepth * 1 + plant.height * 0.5;
+  const structuralCost = plant.biomass * 0.001; // Wood barely respires
+  const maintenanceCost = livingTissue * RESPIRATION_RATE + structuralCost;
 
   // Debug: record energy flow for inspector
   plant._dbgPhotosynthesis = glucoseProduced;

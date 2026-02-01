@@ -60,33 +60,32 @@ export function updateClimate(state: SimulationState): void {
   climate.season = classifySeason(dayOfYear);
 
   // --- PRECIPITATION (episodic) ---
-  // Rain is a probabilistic event when humidity is high, not constant drizzle.
-  // Use a deterministic hash of tick to avoid Math.random() non-determinism.
-  const rainChance = climate.humidity > 0.65
-    ? (climate.humidity - 0.65) * 2.0  // 0..0.7 probability
+  // Humidity ranges 0.3–0.7. Rain fires probabilistically above 0.5.
+  const rainChance = climate.humidity > 0.5
+    ? (climate.humidity - 0.5) * 3.0  // 0..0.6 probability
     : 0;
-  const rainRoll = ((tick * 2654435761) >>> 0) / 4294967296; // deterministic pseudo-random 0..1
+  const rainRoll = ((tick * 2654435761) >>> 0) / 4294967296;
   climate.isRaining = rainRoll < rainChance;
 
   const grid = state.grid;
 
   if (climate.isRaining) {
-    console.log(`RAIN: humid=${climate.humidity.toFixed(2)} chance=${rainChance.toFixed(2)} roll=${rainRoll.toFixed(3)}`);
-    const rainAmount = 0.02; // Gentle rain per tick
+    // Rain lands on soil directly — retention affects drainage, not absorption.
+    const rainAmount = 0.05;
     for (let y = 0; y < GRID_HEIGHT; y++) {
       const row = grid[y];
       for (let x = 0; x < GRID_WIDTH; x++) {
         const cell = row[x];
         if (cell.biomeId === 'ocean') continue;
-        const retention = getSoilRetention(cell.soilId);
-        cell.moisture = Math.min(1.0, cell.moisture + rainAmount * retention);
+        cell.moisture = Math.min(1.0, cell.moisture + rainAmount);
       }
     }
   }
 
   // --- EVAPORATION & DRAINAGE ---
-  // Soil dries via sun/heat evaporation and gravity drainage every tick.
-  const evapBase = 0.001 * (1 + climate.temperature / 40) * Math.max(climate.sunlight, 0.1);
+  // These must be weaker than rain or soil never stays wet.
+  // At peak sun + warm day: evap = 0.0003 * 1.5 * 1.0 = 0.00045
+  const evapBase = 0.0003 * (1 + climate.temperature / 40) * Math.max(climate.sunlight, 0.05);
 
   for (let y = 0; y < GRID_HEIGHT; y++) {
     const row = grid[y];
@@ -98,6 +97,7 @@ export function updateClimate(state: SimulationState): void {
       cell.moisture -= evapBase;
 
       // Gravity drainage — sandy soil drains fast, clay holds water
+      // Sandy (ret 0.2): 0.0008/tick. Clay (ret 0.8): 0.0002/tick.
       const drainage = getSoilDrainage(cell.soilId);
       cell.moisture -= drainage;
 
@@ -123,7 +123,7 @@ function getSoilRetention(soilId: string): number {
 /** Drainage rate per tick — inverse of retention. Sandy drains fast, clay slow. */
 function getSoilDrainage(soilId: string): number {
   const retention = getSoilRetention(soilId);
-  // High retention (clay ~0.8) → low drainage (0.0004)
-  // Low retention (sandy ~0.3) → high drainage (0.0014)
-  return 0.002 * (1 - retention);
+  // High retention (clay ~0.8) → low drainage (0.0002)
+  // Low retention (sandy ~0.2) → high drainage (0.0008)
+  return 0.001 * (1 - retention);
 }
