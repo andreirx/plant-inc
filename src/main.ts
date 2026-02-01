@@ -2,10 +2,15 @@ import { createLayout } from './ui/layout';
 import { createPixiApp } from './render/app';
 import { createGameLoop } from './core/loop';
 import { state } from './core/state';
+import { generateWorld } from './core/systems/mapGenerator';
+import { updateClimate } from './core/systems/climate';
 
 async function bootstrap(): Promise<void> {
   const appContainer = document.getElementById('app');
   if (!appContainer) throw new Error('Missing #app container');
+
+  // Generate the world from the state seed
+  state.grid = generateWorld(state.seed);
 
   // Set up the 4-quadrant layout
   const quadrants = createLayout(appContainer);
@@ -21,7 +26,7 @@ async function bootstrap(): Promise<void> {
   function update(_dt: number): void {
     if (state.paused) return;
     state.tick++;
-    // Systems will be called here as they are implemented
+    updateClimate(state);
   }
 
   // Render — runs every animation frame
@@ -35,13 +40,19 @@ async function bootstrap(): Promise<void> {
   const loop = createGameLoop(update, render);
   loop.start();
 
-  // Placeholder: show tick count in the evolution UI panel
+  // Placeholder: show simulation info in the evolution UI panel
   const tickDisplay = document.createElement('div');
-  tickDisplay.style.cssText = 'padding: 16px; font-size: 14px; color: #7ec8e3;';
+  tickDisplay.style.cssText = 'padding: 16px; font-size: 14px; color: #7ec8e3; font-family: monospace;';
   quadrants.evolutionUI.appendChild(tickDisplay);
 
   function updateTickDisplay(): void {
-    tickDisplay.textContent = `Tick: ${state.tick} | Status: ${state.paused ? 'Paused' : 'Running'}`;
+    const c = state.climate;
+    tickDisplay.innerHTML = [
+      `Tick: ${state.tick}`,
+      `Day: ${c.dayOfYear} | Season: ${c.season}`,
+      `Temp: ${c.temperature.toFixed(1)}°C | Sun: ${(c.sunlight * 100).toFixed(0)}%`,
+      `Seed: ${state.seed}`,
+    ].join('<br>');
     requestAnimationFrame(updateTickDisplay);
   }
   updateTickDisplay();
