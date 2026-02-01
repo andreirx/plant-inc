@@ -60,10 +60,10 @@ export function updateClimate(state: SimulationState): void {
   climate.season = classifySeason(dayOfYear);
 
   // --- PRECIPITATION ---
-  // When humidity > 0.7, rain falls and replenishes soil moisture
-  if (climate.humidity > 0.7) {
-    const rainIntensity = (climate.humidity - 0.7) / 0.3; // 0..1
-    const rainAmount = rainIntensity * 0.05; // Max 0.05 moisture per tick during heavy rain
+  // When humidity > 0.5, rain falls and replenishes soil moisture
+  if (climate.humidity > 0.5) {
+    const rainIntensity = (climate.humidity - 0.5) / 0.5; // 0..1
+    const rainAmount = rainIntensity * 0.1; // Significant moisture per tick
 
     const grid = state.grid;
     for (let y = 0; y < GRID_HEIGHT; y++) {

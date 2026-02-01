@@ -150,8 +150,11 @@ function simulatePlant(
   // 3. PHLOEM TRANSPORT — Distribute glucose, pay maintenance costs
   // ═══════════════════════════════════════════════════════════════
 
-  // Cellular respiration: every living cell burns sugar to stay alive
-  const maintenanceCost = plant.biomass * RESPIRATION_RATE;
+  // Cellular respiration: metabolically active tissue (leaves, root tips) costs more
+  // than structural wood. Scale with active tissue, not total mass.
+  const activeTissue = plant.leafArea * 10 + plant.rootDepth * 2;
+  const structuralCost = plant.biomass * 0.002; // Wood barely respires
+  const maintenanceCost = activeTissue * RESPIRATION_RATE + structuralCost;
 
   // Debug: record energy flow for inspector
   plant._dbgPhotosynthesis = glucoseProduced;
@@ -165,9 +168,21 @@ function simulatePlant(
   // 4. GROWTH — Surplus energy invested into new tissue (meristems)
   // ═══════════════════════════════════════════════════════════════
 
-  if (plant.energy > GROWTH_THRESHOLD) {
+  // Dynamic threshold: seedlings can grow with less surplus (biomass < 0.1 kg)
+  const dynamicThreshold = Math.min(GROWTH_THRESHOLD, plant.biomass * 50 + 1);
+
+  if (plant.energy > dynamicThreshold) {
+    // Seedlings MUST grow leaves first or they starve
+    if (plant.leafArea < 0.01) {
+      const leafInvestment = Math.min(plant.energy - dynamicThreshold, 2.0);
+      plant.leafArea += LEAF_RATE * leafInvestment * 2.0;
+      plant.rootDepth += ROOT_RATE * leafInvestment * 0.5;
+      plant.energy -= leafInvestment;
+      plant.biomass += leafInvestment * GROWTH_EFFICIENCY * 0.01;
+    }
+
     // Investment budget: spend a fraction of surplus
-    const surplus = plant.energy - GROWTH_THRESHOLD;
+    const surplus = plant.energy - dynamicThreshold;
     const investment = Math.min(surplus * 0.4, 5.0); // Cap per-tick investment
 
     // Determine growth strategy based on current bottleneck
