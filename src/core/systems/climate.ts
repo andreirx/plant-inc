@@ -4,10 +4,15 @@
  * Temperature follows a sinusoidal 365-day year cycle.
  * Sunlight follows a simple day/night curve within each day.
  * Season is derived from dayOfYear.
+ *
+ * PRECIPITATION: When humidity exceeds 0.7, rain falls and
+ * replenishes soil moisture across the grid. Soil water retention
+ * determines how much rain each tile absorbs.
  */
 
-import { TICKS_PER_DAY, DAYS_PER_YEAR } from '../constants';
+import { TICKS_PER_DAY, DAYS_PER_YEAR, GRID_WIDTH, GRID_HEIGHT } from '../constants';
 import { type SimulationState } from '../state';
+import { SOIL_TYPES } from '../data/soil';
 
 const TWO_PI = Math.PI * 2;
 
@@ -31,6 +36,12 @@ export function updateClimate(state: SimulationState): void {
   const dayOfYear = Math.floor(totalDays) % DAYS_PER_YEAR;
   const yearProgress = dayOfYear / DAYS_PER_YEAR; // 0..1
 
+  // Track year rollover
+  const previousDay = climate.dayOfYear;
+  if (dayOfYear < previousDay && tick > 0) {
+    climate.year++;
+  }
+
   // Temperature: sinusoidal seasonal cycle
   climate.temperature = BASE_TEMP + SEASONAL_AMPLITUDE * Math.sin(yearProgress * TWO_PI + SEASONAL_PHASE);
 
@@ -47,6 +58,26 @@ export function updateClimate(state: SimulationState): void {
   // Season classification
   climate.dayOfYear = dayOfYear;
   climate.season = classifySeason(dayOfYear);
+
+  // --- PRECIPITATION ---
+  // When humidity > 0.7, rain falls and replenishes soil moisture
+  if (climate.humidity > 0.7) {
+    const rainIntensity = (climate.humidity - 0.7) / 0.3; // 0..1
+    const rainAmount = rainIntensity * 0.05; // Max 0.05 moisture per tick during heavy rain
+
+    const grid = state.grid;
+    for (let y = 0; y < GRID_HEIGHT; y++) {
+      const row = grid[y];
+      for (let x = 0; x < GRID_WIDTH; x++) {
+        const cell = row[x];
+        if (cell.biomeId === 'ocean') continue;
+
+        // Soil retention determines how much rain is absorbed vs runs off
+        const retention = getSoilRetention(cell.soilId);
+        cell.moisture = Math.min(1.0, cell.moisture + rainAmount * retention);
+      }
+    }
+  }
 }
 
 function classifySeason(dayOfYear: number): 'Spring' | 'Summer' | 'Autumn' | 'Winter' {
@@ -54,4 +85,11 @@ function classifySeason(dayOfYear: number): 'Spring' | 'Summer' | 'Autumn' | 'Wi
   if (dayOfYear < 182) return 'Summer';
   if (dayOfYear < 273) return 'Autumn';
   return 'Winter';
+}
+
+function getSoilRetention(soilId: string): number {
+  for (const soil of Object.values(SOIL_TYPES)) {
+    if (soil.id === soilId) return soil.waterRetention;
+  }
+  return 0.5;
 }

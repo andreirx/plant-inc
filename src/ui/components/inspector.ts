@@ -70,7 +70,7 @@ export function initInspector(layout: QuadrantElements): void {
 
     airInfo.innerHTML = [
       '<b>ATMOSPHERE SCAN</b>',
-      `Season: ${climate.season} (Day ${climate.dayOfYear})`,
+      `Year ${climate.year} — ${climate.season} (Day ${climate.dayOfYear})`,
       `Weather: ${weatherLabel}`,
       `Global Temp: ${climate.temperature.toFixed(1)}°C`,
       `Sunlight: ${(climate.sunlight * 100).toFixed(0)}%`,

@@ -6,10 +6,10 @@ import { state } from '../../core/state';
 import { type QuadrantElements } from '../layout';
 
 const SPEEDS = [
-  { label: '⏸', value: 0 },
+  { label: '0.1x', value: 0.1 },
   { label: '1x', value: 1 },
-  { label: '5x', value: 5 },
   { label: '10x', value: 10 },
+  { label: '50x', value: 50 },
 ];
 
 const BTN_BASE =
@@ -51,6 +51,6 @@ export function initSpeedControls(layout: QuadrantElements): void {
     }
   }
 
-  // Initial highlight: 1x
+  // Initial highlight
   highlightActive();
 }

@@ -44,6 +44,7 @@ export interface ClimateState {
   windSpeed: number;
   season: 'Spring' | 'Summer' | 'Autumn' | 'Winter';
   dayOfYear: number;
+  year: number;
 }
 
 export interface SimulationState {
@@ -123,6 +124,7 @@ export function createInitialState(): SimulationState {
       windSpeed: 0.2,
       season: 'Spring',
       dayOfYear: 0,
+      year: 1,
     },
     species: createDefaultSpecies(),
     selection: { x: Math.floor(GRID_WIDTH / 2), y: Math.floor(GRID_HEIGHT / 2) },
