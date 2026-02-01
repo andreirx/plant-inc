@@ -580,13 +580,16 @@ function buildRootStructure(plant: SpeciesInstance): RootStructure {
     // (mirrors shoot: branch length ∝ remaining trunk above)
     // Surface laterals are longest, deep laterals shorter — natural inverted-tree shape
     const remainingBelow = rootD * (1 - t);
-    const latLen = remainingBelow * rng.range(0.3, 0.6);
+    const latLen = remainingBelow * rng.range(0.5, 0.9);
 
-    // Alternate sides, spread more horizontally near surface, more downward deeper
+    // Alternate sides; surface roots spread almost horizontally, deep roots angle down
     const side = i % 2 === 0 ? -1 : 1;
-    // Near surface: nearly horizontal (π/2 ± 1.0). Deep: more downward (π/2 ± 0.4)
-    const spreadRange = 0.4 + (1 - t) * 0.6;
-    let latAngle = Math.PI / 2 + side * spreadRange + rng.range(-0.15, 0.15);
+    // Surface laterals: ~18° from horizontal. Deep laterals: ~63° from horizontal.
+    const surfaceAngle = Math.PI * 0.1;
+    const deepAngle = Math.PI * 0.35;
+    const baseAngle = surfaceAngle + t * (deepAngle - surfaceAngle);
+    let latAngle = side > 0 ? baseAngle : (Math.PI - baseAngle);
+    latAngle += rng.range(-0.15, 0.15);
     latAngle = Math.max(Math.PI / 9, Math.min(Math.PI - Math.PI / 9, latAngle));
 
     if (latLen > 0.02 && latR > 0.0003) {
