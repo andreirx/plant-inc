@@ -37,7 +37,8 @@ import { type StatKey } from '../data/traits';
 
 // ── Photosynthesis ──────────────────────────────────────────────
 const PHOTO_BASE = 0.8;          // Glucose produced per m² leaf at full sun, per tick
-const STOMATA_THRESHOLD = 0.05;  // Below this water uptake, stomata close fully
+const STOMATA_CLOSE = 0.003;     // Below this water uptake, stomata fully closed
+const STOMATA_OPEN = 0.05;       // Above this water uptake, stomata fully open
 
 // ── Uptake ──────────────────────────────────────────────────────
 const WATER_UPTAKE_RATE = 0.08;  // Water units per meter root depth per tick
@@ -151,11 +152,18 @@ function simulatePlant(
   // 2. PHOTOSYNTHESIS — Leaves convert sunlight + water + CO₂ → glucose
   // ═══════════════════════════════════════════════════════════════
 
-  // Stomata factor: plants close stomata when water-stressed to conserve water
-  // but this halts CO₂ intake and thus photosynthesis
-  const waterFactor = waterAbsorbed > STOMATA_THRESHOLD
-    ? Math.min(1.0, waterAbsorbed * 10)
-    : 0.1; // Severely reduced — stomata nearly closed
+  // Stomata factor: smooth ramp from closed (dry) to open (wet).
+  // A seedling with 18cm roots absorbing 0.016 should get ~30% efficiency,
+  // not be slammed to 10% by a hard threshold.
+  let waterFactor: number;
+  if (waterAbsorbed <= STOMATA_CLOSE) {
+    waterFactor = 0.05; // Nearly closed — minimal CO₂ intake
+  } else if (waterAbsorbed >= STOMATA_OPEN) {
+    waterFactor = 1.0;  // Fully open
+  } else {
+    // Linear ramp between closed and open
+    waterFactor = 0.05 + 0.95 * (waterAbsorbed - STOMATA_CLOSE) / (STOMATA_OPEN - STOMATA_CLOSE);
+  }
 
   const effectiveLeafArea = plant.leafArea + 0.005; // Cotyledons provide minimal photosynthesis
   const sunEnergy = effectiveLeafArea * PHOTO_BASE * climate.sunlight * waterFactor;
@@ -170,9 +178,9 @@ function simulatePlant(
   // ═══════════════════════════════════════════════════════════════
 
   // Cellular respiration: living tissue (leaves, root tips, meristems) costs more
-  // than structural wood. A plant with more leaves produces AND consumes more.
-  const livingTissue = plant.leafArea * 5 + plant.rootDepth * 1 + plant.height * 0.5;
-  const structuralCost = plant.biomass * 0.001; // Wood barely respires
+  // than structural wood. Leaves are the main cost since they're metabolically active.
+  const livingTissue = plant.leafArea * 3 + plant.rootDepth * 0.5 + plant.height * 0.3;
+  const structuralCost = plant.biomass * 0.001;
   const maintenanceCost = livingTissue * RESPIRATION_RATE + structuralCost;
 
   // Debug: record energy flow for inspector
