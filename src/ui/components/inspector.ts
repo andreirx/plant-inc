@@ -1,7 +1,8 @@
 /**
- * Inspector HUD — live data overlays on Air and Soil quadrants.
+ * Inspector HUD — live data overlays on Air, Soil, and Evolution quadrants.
  * Air panel: atmosphere scan + native fauna list.
  * Soil panel: substrate scan with CSS progress bars for NPK/moisture.
+ * Bio panel (Q4): plant biology scan — vitals, metabolism, morphology.
  */
 
 import { state } from '../../core/state';
@@ -25,6 +26,13 @@ export function initInspector(layout: QuadrantElements): void {
   soilInfo.style.cssText = PANEL_STYLE + 'bottom:10px;left:10px;';
   layout.soilView.appendChild(soilInfo);
 
+  // Biology scan panel — lives in Q4 (evolution quadrant), top-right
+  const bioInfo = document.createElement('div');
+  bioInfo.style.cssText =
+    PANEL_STYLE +
+    'top:10px;right:10px;max-height:45%;overflow-y:auto;z-index:10;';
+  layout.evolutionUI.appendChild(bioInfo);
+
   function update(): void {
     const { climate, selection, grid } = state;
 
@@ -39,7 +47,6 @@ export function initInspector(layout: QuadrantElements): void {
       biomeName = biome.name;
       localTemp = climate.temperature + biome.climateModifier.tempOffset;
 
-      // Native fauna list
       if (biome.nativeBiota.length > 0) {
         const faunaItems = biome.nativeBiota.map((entry) => {
           const def = findBiota(entry.biotaId);
@@ -47,12 +54,19 @@ export function initInspector(layout: QuadrantElements): void {
           const type = def?.type ?? '?';
           return `<span style="color:#aad">${name}</span> <span style="color:#666">(${type})</span>`;
         });
-        faunaHtml = '<hr style="border-color:#555;margin:4px 0">' +
-          '<b>NATIVE FAUNA</b><br>' + faunaItems.join('<br>');
+        faunaHtml =
+          '<hr style="border-color:#555;margin:4px 0">' +
+          '<b>NATIVE FAUNA</b><br>' +
+          faunaItems.join('<br>');
       }
     }
 
-    const weatherLabel = climate.humidity > 0.8 ? 'RAIN' : climate.humidity > 0.6 ? 'OVERCAST' : 'CLEAR';
+    const weatherLabel =
+      climate.humidity > 0.8
+        ? 'RAIN'
+        : climate.humidity > 0.6
+          ? 'OVERCAST'
+          : 'CLEAR';
 
     airInfo.innerHTML = [
       '<b>ATMOSPHERE SCAN</b>',
@@ -67,12 +81,12 @@ export function initInspector(layout: QuadrantElements): void {
       faunaHtml,
     ].join('<br>');
 
-    // --- SOIL PANEL ---
+    // --- SOIL PANEL (substrate only) ---
     if (selection) {
       const cell = grid[selection.y][selection.x];
       const soil = findSoil(cell.soilId);
 
-      const lines = [
+      soilInfo.innerHTML = [
         '<b>SUBSTRATE SCAN</b>',
         `Type: ${soil?.name ?? cell.soilId}`,
         `Retention: ${((soil?.waterRetention ?? 0) * 100).toFixed(0)}% | Density: ${((soil?.density ?? 0) * 100).toFixed(0)}%`,
@@ -84,12 +98,17 @@ export function initInspector(layout: QuadrantElements): void {
         '',
         '<b>MOISTURE</b>',
         bar('H₂O', cell.moisture, '#2196f3'),
-      ];
+      ].join('<br>');
+    } else {
+      soilInfo.innerHTML = 'NO SELECTION';
+    }
 
+    // --- BIOLOGY SCAN (Q4 panel) ---
+    if (selection) {
+      const cell = grid[selection.y][selection.x];
       if (cell.plant) {
         const p = cell.plant;
 
-        // Active traits display
         const traitNames = Array.from(state.species.activeTraits)
           .map((id) => {
             const key = id.toUpperCase();
@@ -97,13 +116,11 @@ export function initInspector(layout: QuadrantElements): void {
           })
           .join(', ');
 
-        // Energy flow display
         const netEnergy = p._dbgPhotosynthesis - p._dbgRespiration;
         const netSign = netEnergy >= 0 ? '+' : '';
         const netColor = netEnergy >= 0 ? '#4caf50' : '#f44336';
 
-        lines.push(
-          '<hr style="border-color:#444;margin:4px 0">',
+        bioInfo.innerHTML = [
           '<b>BIOLOGY SCAN</b>',
           `Genetics: <span style="color:#f8d348">${traitNames || 'None'}</span>`,
           '',
@@ -113,22 +130,24 @@ export function initInspector(layout: QuadrantElements): void {
           `Biomass: ${(p.biomass * 1000).toFixed(0)}g | Age: ${p.age} ticks`,
           '',
           '<b>METABOLISM</b>',
-          `Photosynthesis: <span style="color:#4caf50">+${p._dbgPhotosynthesis.toFixed(3)}</span>/tick`,
-          `Respiration: <span style="color:#f44336">-${p._dbgRespiration.toFixed(3)}</span>/tick`,
+          `Photo: <span style="color:#4caf50">+${p._dbgPhotosynthesis.toFixed(3)}</span>/tick`,
+          `Resp: <span style="color:#f44336">-${p._dbgRespiration.toFixed(3)}</span>/tick`,
           `Net: <span style="color:${netColor}">${netSign}${netEnergy.toFixed(3)}</span>/tick`,
           '',
           '<b>MORPHOLOGY</b>',
           `Height: ${p.height.toFixed(2)}m | Trunk: ${(p.trunkRadius * 100).toFixed(1)}cm`,
           `Roots: ${p.rootDepth.toFixed(2)}m | Leaves: ${p.leafArea.toFixed(3)}m²`,
           `Branches: ${p.branchCount}`,
-          p.flowering > 0 ? `Flowering: ${(p.flowering * 100).toFixed(0)}%` : '',
+          p.flowering > 0
+            ? `Flowering: ${(p.flowering * 100).toFixed(0)}%`
+            : '',
           p.fruit > 0 ? `Fruit: ${(p.fruit * 100).toFixed(0)}%` : '',
-        );
+        ].join('<br>');
+      } else {
+        bioInfo.innerHTML = '<b>BIOLOGY SCAN</b><br>No plant selected';
       }
-
-      soilInfo.innerHTML = lines.join('<br>');
     } else {
-      soilInfo.innerHTML = 'NO SELECTION';
+      bioInfo.innerHTML = '<b>BIOLOGY SCAN</b><br>No selection';
     }
 
     requestAnimationFrame(update);

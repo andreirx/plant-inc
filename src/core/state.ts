@@ -50,6 +50,7 @@ export interface SimulationState {
   tick: number;
   seed: number;
   paused: boolean;
+  timeScale: number;   // Speed multiplier: 0 = paused, 1 = normal, 5/10 = fast
   grid: GridCell[][];
   climate: ClimateState;
   species: SpeciesGenome;
@@ -113,6 +114,7 @@ export function createInitialState(): SimulationState {
     tick: 0,
     seed: Math.floor(Math.random() * 2147483647),
     paused: false,
+    timeScale: 1.0,
     grid: createGrid(GRID_WIDTH, GRID_HEIGHT),
     climate: {
       temperature: 20,

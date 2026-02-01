@@ -62,4 +62,52 @@ export const BIOMES: Record<string, Biome> = {
     nativeBiota: [],
     climateModifier: { tempOffset: -2, rainMultiplier: 1.0 },
   },
+  TROPICAL_RAINFOREST: {
+    id: 'tropical_rainforest',
+    name: 'Lush Rainforest',
+    soilComposition: [
+      { soilId: SOIL_TYPES.SILT.id, weight: 0.7 },
+      { soilId: SOIL_TYPES.CLAY.id, weight: 0.3 },
+    ],
+    nativeBiota: [
+      { biotaId: BIOTA_DB.BEE.id, spawnRate: 0.08 },
+      { biotaId: BIOTA_DB.DEER.id, spawnRate: 0.02 },
+    ],
+    climateModifier: { tempOffset: 25, rainMultiplier: 2.5 },
+  },
+  SAVANNA: {
+    id: 'savanna',
+    name: 'Golden Savanna',
+    soilComposition: [
+      { soilId: SOIL_TYPES.SANDY.id, weight: 0.5 },
+      { soilId: SOIL_TYPES.SILT.id, weight: 0.3 },
+      { soilId: SOIL_TYPES.CLAY.id, weight: 0.2 },
+    ],
+    nativeBiota: [
+      { biotaId: BIOTA_DB.DEER.id, spawnRate: 0.03 },
+    ],
+    climateModifier: { tempOffset: 18, rainMultiplier: 0.6 },
+  },
+  TUNDRA: {
+    id: 'tundra',
+    name: 'Frozen Tundra',
+    soilComposition: [
+      { soilId: SOIL_TYPES.SANDY.id, weight: 0.4 },
+      { soilId: SOIL_TYPES.CLAY.id, weight: 0.6 },
+    ],
+    nativeBiota: [],
+    climateModifier: { tempOffset: -25, rainMultiplier: 0.3 },
+  },
+  WETLAND: {
+    id: 'wetland',
+    name: 'Murky Wetland',
+    soilComposition: [
+      { soilId: SOIL_TYPES.CLAY.id, weight: 0.6 },
+      { soilId: SOIL_TYPES.SILT.id, weight: 0.4 },
+    ],
+    nativeBiota: [
+      { biotaId: BIOTA_DB.BEE.id, spawnRate: 0.04 },
+    ],
+    climateModifier: { tempOffset: 5, rainMultiplier: 1.8 },
+  },
 };

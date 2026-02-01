@@ -10,7 +10,7 @@ import { type QuadrantElements } from '../layout';
 
 export function initEvolutionUI(layout: QuadrantElements): void {
   const container = layout.evolutionUI;
-  container.style.cssText += 'padding:10px;overflow-y:auto;font-family:monospace;';
+  container.style.cssText += 'padding:10px;padding-top:calc(45% + 20px);overflow-y:auto;font-family:monospace;';
 
   const header = document.createElement('div');
   header.style.marginBottom = '10px';

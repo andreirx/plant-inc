@@ -36,7 +36,24 @@ interface TileClimate {
  */
 function classifyBiome(elevation: number, temp: number, moisture: number): string {
   if (elevation < SEA_LEVEL) return 'ocean';
+
+  // Polar / alpine → tundra
+  if (temp < 0.15) return 'tundra';
+  if (elevation > 0.75 && temp < 0.35) return 'tundra';
+
+  // Hot + dry → desert
   if (temp > 0.65 && moisture < 0.3) return 'desert';
+
+  // Hot + very wet → tropical rainforest
+  if (temp > 0.7 && moisture > 0.7) return 'tropical_rainforest';
+
+  // Hot + moderate moisture → savanna
+  if (temp > 0.6 && moisture >= 0.3 && moisture <= 0.6) return 'savanna';
+
+  // Very wet + moderate temp → wetland
+  if (moisture > 0.8 && temp >= 0.4 && temp <= 0.7) return 'wetland';
+
+  // Default: temperate forest
   return 'temperate_forest';
 }
 

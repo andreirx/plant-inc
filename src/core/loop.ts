@@ -1,4 +1,5 @@
 import { TICK_DURATION_MS, MAX_ACCUMULATOR_MS } from './constants';
+import { state } from './state';
 
 export type UpdateFn = (dt: number) => void;
 export type RenderFn = (interpolation: number) => void;
@@ -38,7 +39,7 @@ export function createGameLoop(update: UpdateFn, render: RenderFn): GameLoop {
       deltaMs = MAX_ACCUMULATOR_MS;
     }
 
-    accumulator += deltaMs;
+    accumulator += deltaMs * state.timeScale;
 
     // Fixed timestep simulation updates
     while (accumulator >= TICK_DURATION_MS) {

@@ -14,6 +14,7 @@ import { createAtmosphereOverlay, updateAtmosphereOverlay } from './render/layer
 import { drawShoot, drawRoots } from './render/visuals/plantDrawer';
 import { initInspector } from './ui/components/inspector';
 import { initEvolutionUI } from './ui/components/evolution';
+import { initSpeedControls } from './ui/components/speedControls';
 
 async function bootstrap(): Promise<void> {
   const appContainer = document.getElementById('app');
@@ -51,14 +52,14 @@ async function bootstrap(): Promise<void> {
     updateCursorLayer(cursorGfx, state.selection.x, state.selection.y);
   }
 
-  // --- Air Quadrant: Atmosphere overlay + plant shoot visualization ---
+  // --- Air Quadrant: Sky background + plant shoot in foreground ---
   const atmosphereGfx = createAtmosphereOverlay(
     quadrants.airView.clientWidth,
     quadrants.airView.clientHeight,
   );
   const shootGfx = new Graphics();
-  airApp.stage.addChild(shootGfx);
-  airApp.stage.addChild(atmosphereGfx); // Atmosphere on top for tint effect
+  airApp.stage.addChild(atmosphereGfx); // Sky background
+  airApp.stage.addChild(shootGfx);       // Plant in foreground
 
   // --- Soil Quadrant: Root visualization ---
   const rootGfx = new Graphics();
@@ -84,6 +85,9 @@ async function bootstrap(): Promise<void> {
 
   // --- Evolution UI in Q4 ---
   initEvolutionUI(quadrants);
+
+  // --- Speed Controls at bottom of Q4 ---
+  initSpeedControls(quadrants);
 
   // Simulation update — runs at fixed 20Hz
   function update(_dt: number): void {
