@@ -53,4 +53,13 @@ export const BIOMES: Record<string, Biome> = {
     nativeBiota: [],
     climateModifier: { tempOffset: 15, rainMultiplier: 0.1 },
   },
+  OCEAN: {
+    id: 'ocean',
+    name: 'Open Water',
+    soilComposition: [
+      { soilId: SOIL_TYPES.SANDY.id, weight: 1.0 },
+    ],
+    nativeBiota: [],
+    climateModifier: { tempOffset: -2, rainMultiplier: 1.0 },
+  },
 };

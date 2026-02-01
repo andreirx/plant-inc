@@ -58,8 +58,9 @@ function createGrid(width: number, height: number): GridCell[][] {
 
 function createDefaultSpecies(): SpeciesGenome {
   const genome: SpeciesGenome = {
-    name: 'Seedling',
-    color: 0x4caf50,
+    name: 'Progenitor',
+    color: 0xff0000,
+    dnaPoints: 50,
     activeTraits: new Set(['base_roots']),
     stats: { ...BASE_STATS },
   };

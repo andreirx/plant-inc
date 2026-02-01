@@ -8,7 +8,9 @@ import { updateClimate } from './core/systems/climate';
 import { createTerrainLayer, TILE_SIZE } from './render/layers/terrainLayer';
 import { createPlantLayer, updatePlantLayer } from './render/layers/plantLayer';
 import { createCursorLayer, updateCursorLayer } from './render/layers/cursorLayer';
+import { createAtmosphereOverlay, updateAtmosphereOverlay } from './render/layers/atmosphereLayer';
 import { initInspector } from './ui/components/inspector';
+import { initEvolutionUI } from './ui/components/evolution';
 
 async function bootstrap(): Promise<void> {
   const appContainer = document.getElementById('app');
@@ -36,7 +38,6 @@ async function bootstrap(): Promise<void> {
   mapApp.stage.addChild(plantGfx);
   mapApp.stage.addChild(cursorGfx);
 
-  // Fit map into viewport with scaling
   fitMapToView(mapApp, quadrants.mapView);
   window.addEventListener('resize', () => fitMapToView(mapApp, quadrants.mapView));
 
@@ -44,6 +45,13 @@ async function bootstrap(): Promise<void> {
   if (state.selection) {
     updateCursorLayer(cursorGfx, state.selection.x, state.selection.y);
   }
+
+  // --- Air Quadrant: Atmosphere overlay ---
+  const atmosphereGfx = createAtmosphereOverlay(
+    quadrants.airView.clientWidth,
+    quadrants.airView.clientHeight,
+  );
+  airApp.stage.addChild(atmosphereGfx);
 
   // --- Map Interaction: click to select tile ---
   mapApp.stage.eventMode = 'static';
@@ -63,10 +71,8 @@ async function bootstrap(): Promise<void> {
   // --- HUD: Inspector panels on Air and Soil quadrants ---
   initInspector(quadrants);
 
-  // --- Climate readout in Evolution quadrant ---
-  const climateEl = document.createElement('div');
-  climateEl.style.cssText = 'padding:16px;font-size:14px;color:#7ec8e3;font-family:monospace;';
-  quadrants.evolutionUI.appendChild(climateEl);
+  // --- Evolution UI in Q4 ---
+  initEvolutionUI(quadrants);
 
   // Simulation update — runs at fixed 20Hz
   function update(_dt: number): void {
@@ -78,17 +84,12 @@ async function bootstrap(): Promise<void> {
   // Render — runs every animation frame
   function render(_interpolation: number): void {
     updatePlantLayer(plantGfx);
+    updateAtmosphereOverlay(
+      atmosphereGfx,
+      quadrants.airView.clientWidth,
+      quadrants.airView.clientHeight,
+    );
 
-    const c = state.climate;
-    climateEl.innerHTML = [
-      `Tick: ${state.tick}`,
-      `Day: ${c.dayOfYear} | Season: ${c.season}`,
-      `Temp: ${c.temperature.toFixed(1)}°C | Sun: ${(c.sunlight * 100).toFixed(0)}%`,
-      `Humidity: ${(c.humidity * 100).toFixed(0)}% | Wind: ${c.windSpeed.toFixed(2)}`,
-      `Seed: ${state.seed}`,
-    ].join('<br>');
-
-    void airApp;
     void soilApp;
   }
 
@@ -108,7 +109,6 @@ function fitMapToView(
   const scale = Math.min(scaleX, scaleY);
   app.stage.scale.set(scale);
 
-  // Center the map within the container
   app.stage.x = (container.clientWidth - mapPixelW * scale) / 2;
   app.stage.y = (container.clientHeight - mapPixelH * scale) / 2;
 }

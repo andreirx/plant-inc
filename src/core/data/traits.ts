@@ -59,6 +59,7 @@ export const TRAIT_DATABASE: Record<string, Trait> = {
 export interface SpeciesGenome {
   name: string;
   color: number; // Visual phenotype
+  dnaPoints: number; // Currency for purchasing traits
   activeTraits: Set<string>; // IDs of unlocked traits
 
   // Computed stats (cached for performance, recalculated on trait change)
