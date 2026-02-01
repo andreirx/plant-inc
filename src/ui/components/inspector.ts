@@ -61,12 +61,11 @@ export function initInspector(layout: QuadrantElements): void {
       }
     }
 
-    const weatherLabel =
-      climate.humidity > 0.8
-        ? 'RAIN'
-        : climate.humidity > 0.6
-          ? 'OVERCAST'
-          : 'CLEAR';
+    const weatherLabel = climate.isRaining
+      ? 'RAIN'
+      : climate.humidity > 0.6
+        ? 'OVERCAST'
+        : 'CLEAR';
 
     airInfo.innerHTML = [
       '<b>ATMOSPHERE SCAN</b>',
