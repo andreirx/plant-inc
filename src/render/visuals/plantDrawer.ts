@@ -113,6 +113,10 @@ export interface RootStructure {
 //  Constants
 // ──────────────────────────────────────
 
+// Golden angle — ~137.5° in radians. Ensures no two branches perfectly
+// overlap vertically, maximizing light capture (phyllotaxy).
+const GOLDEN_ANGLE = 2.39996;
+
 const BARK_COLOR = 0x5d3a1a;
 const BARK_LIGHT = 0x7a5230;
 const FLOWER_PINK = 0xffaacc;
@@ -488,8 +492,10 @@ function buildShootStructure(
     curY = nextY;
   }
 
-  // Second pass: attach auto-generated branches (always rendered).
-  const branchSideFlip = Math.floor(plant.phenotypeSeed * 7) % 2 === 0 ? 1 : -1;
+  // Second pass: attach auto-generated branches using golden angle phyllotaxy.
+  // Each branch spirals ~137.5° around the trunk. In 2D projection:
+  //   cos(azimuth) → left/right direction
+  //   sin(azimuth) → depth (toward/away from camera → foreshortening)
 
   for (let bi = 0; bi < numBranches; bi++) {
     const bt = BRANCH_ZONE_START + (1 - BRANCH_ZONE_START) * ((bi + 0.5) / numBranches);
@@ -503,25 +509,27 @@ function buildShootStructure(
     const spawnX = tgt.sx + (tgt.ex - tgt.sx) * localT;
     const spawnY = tgt.sy + (tgt.ey - tgt.sy) * localT;
 
-    const pairIdx = Math.floor(bi / 2);
-    const pairRng = new SeededRandom(plant.phenotypeSeed * 250 + pairIdx + 1);
-    const branchAreaFrac = pairRng.range(0.08, 0.2);
-    const branchLenMult = pairRng.range(0.25, 0.5);
-
     const bRng = new SeededRandom(plant.phenotypeSeed * 200 + bi + 1);
+    const branchAreaFrac = bRng.range(0.08, 0.2);
+    const branchLenMult = bRng.range(0.25, 0.5);
 
     const trunkRadAtH = trunkR * (1 - bt * 0.5);
     const branchR = Math.sqrt(trunkRadAtH * trunkRadAtH * branchAreaFrac);
 
     // Gentle taper: length drops to 40% at the top, not 0%.
-    // This prevents the "upper sibling" in each pair from being much shorter
-    // than the lower one, which caused permanent left/right asymmetry.
     const lengthBudget = trunkH * (1 - bt * 0.6);
-    const branchLen = lengthBudget * branchLenMult;
 
-    const side = (bi % 2 === 0 ? -1 : 1) * branchSideFlip;
+    // Golden angle phyllotaxy — per-plant seed offset so each plant spirals differently
+    const azimuth = (bi + plant.phenotypeSeed * 10) * GOLDEN_ANGLE;
+    const xDir = Math.cos(azimuth);     // -1..1: left/right in 2D
+
+    // Foreshorten branches pointing at/away from camera
+    const foreshorten = 0.5 + 0.5 * Math.abs(xDir);
+    const branchLen = lengthBudget * branchLenMult * foreshorten;
+
+    // Direction: xDir maps to angular spread from vertical
     const baseSpread = 0.4 + (1 - bt) * 0.6;
-    let branchAngle = -Math.PI / 2 + side * baseSpread + bRng.range(-0.15, 0.15);
+    let branchAngle = -Math.PI / 2 + xDir * baseSpread + bRng.range(-0.1, 0.1);
     branchAngle = Math.max(-Math.PI + Math.PI / 9, Math.min(-Math.PI / 9, branchAngle));
 
     if (branchLen > 0.03 && branchR > 0.0005) {
@@ -759,8 +767,7 @@ function buildRootStructure(plant: SpeciesInstance): RootStructure {
     tapY = nextY;
   }
 
-  // Second pass: attach auto-generated laterals (always rendered).
-  const rootSideFlip = Math.floor(plant.phenotypeSeed * 7) % 2 === 0 ? 1 : -1;
+  // Second pass: attach auto-generated laterals using golden angle phyllotaxy.
 
   for (let li = 0; li < numLaterals; li++) {
     const lt = (li + 0.5) / numLaterals;
@@ -774,25 +781,27 @@ function buildRootStructure(plant: SpeciesInstance): RootStructure {
     const spawnX = tgt.sx + (tgt.ex - tgt.sx) * localT;
     const spawnY = tgt.sy + (tgt.ey - tgt.sy) * localT;
 
-    const pairIdx = Math.floor(li / 2);
-    const pairRng = new SeededRandom(plant.phenotypeSeed * 650 + pairIdx + 1);
-    const latAreaFrac = pairRng.range(0.08, 0.2);
-    const latLenMult = pairRng.range(0.5, 0.9);
-
     const lRng = new SeededRandom(plant.phenotypeSeed * 600 + li + 1);
+    const latAreaFrac = lRng.range(0.08, 0.2);
+    const latLenMult = lRng.range(0.5, 0.9);
 
     const tapRadAtD = tapRootRadius * (1 - lt * 0.5);
     const latR = Math.sqrt(tapRadAtD * tapRadAtD * latAreaFrac);
 
-    // Gentle taper: same fix as shoot branches — prevents pair asymmetry.
+    // Gentle taper
     const lengthBudget = rootD * (1 - lt * 0.6);
-    const latLen = Math.max(rootD * 0.15, lengthBudget * latLenMult);
 
-    const side = (li % 2 === 0 ? -1 : 1) * rootSideFlip;
+    // Golden angle phyllotaxy for roots
+    const azimuth = (li + plant.phenotypeSeed * 10) * GOLDEN_ANGLE;
+    const xDir = Math.cos(azimuth);
+    const foreshorten = 0.5 + 0.5 * Math.abs(xDir);
+    const latLen = Math.max(rootD * 0.15, lengthBudget * latLenMult * foreshorten);
+
+    // Root direction: shallow near surface, steeper with depth
     const surfaceAngle = Math.PI * 0.08;
     const deepAngle = Math.PI * 0.2;
     const baseAngle = surfaceAngle + lt * (deepAngle - surfaceAngle);
-    let latAngle = side > 0 ? baseAngle : (Math.PI - baseAngle);
+    let latAngle = xDir > 0 ? baseAngle : (Math.PI - baseAngle);
     latAngle += lRng.range(-0.12, 0.12);
     latAngle = Math.max(Math.PI / 9, Math.min(Math.PI - Math.PI / 9, latAngle));
 
