@@ -130,6 +130,24 @@ function countNodes(node: BranchNode): number {
   return count;
 }
 
+/** Count branch children (depth >= 1) along a chain, excluding chain links (depth 0). */
+function countBranchChildren(chainRoot: BranchNode): number {
+  let branches = 0;
+  let seg: BranchNode | null = chainRoot;
+  while (seg) {
+    let nextChain: BranchNode | null = null;
+    for (const child of seg.children) {
+      if (child.depth === 0) {
+        nextChain = child; // Next chain segment
+      } else {
+        branches++; // Actual branch/lateral
+      }
+    }
+    seg = nextChain;
+  }
+  return branches;
+}
+
 // ══════════════════════════════════════════════════════════════════
 //  PUBLIC API
 // ══════════════════════════════════════════════════════════════════
@@ -198,9 +216,11 @@ export function drawPlant(
       `SCALE: ${scale.toFixed(2)}px/m (airScaleY=${airScaleY.toFixed(2)} soilScaleY=${soilScaleY.toFixed(2)} ` +
       `widthScale=${widthScale.toFixed(2)}) views: air=${airW}x${airH} soil=${soilW}x${soilH}`,
     );
+    const trunkBranches = countBranchChildren(shoot.root);
+    const tapLaterals = countBranchChildren(roots.root);
     console.log(
-      `TREE: ${shootNodes} shoot nodes (${shoot.root.children.length} trunk branches), ` +
-      `${rootNodes} root nodes (${roots.root.children.length} taproot laterals), ` +
+      `TREE: ${shootNodes} shoot nodes (${trunkBranches} branches off trunk), ` +
+      `${rootNodes} root nodes (${tapLaterals} laterals off taproot), ` +
       `${shoot.leaves.length} leaves, branchCount=${plant.branchCount}`,
     );
   }
@@ -611,8 +631,8 @@ function buildRootStructure(plant: SpeciesInstance): RootStructure {
   const numTapSegs = Math.max(3, Math.ceil(rootD / 1.0));
   const tapSegLen = rootD / numTapSegs;
 
-  // Lateral parameters
-  const numLaterals = Math.max(3, Math.min(14, Math.floor(plant.rootDepth * 1.2) + 2));
+  // Lateral parameters — roots branch more densely than shoots
+  const numLaterals = Math.max(4, Math.min(20, Math.floor(plant.rootDepth * 2.5) + 3));
   let nextLatIdx = 0;
 
   let tapRoot: BranchNode | null = null;

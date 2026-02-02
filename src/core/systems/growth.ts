@@ -55,14 +55,14 @@ const MAX_ENERGY = 80;           // Sugar storage cap (vacuole limit)
 const HEIGHT_RATE = 0.004;       // Meters height per unit energy invested
 const ROOT_RATE = 0.003;         // Meters root depth per unit energy invested
 const LEAF_RATE = 0.006;         // m² leaf area per unit energy invested
-const TRUNK_RATE = 0.0008;       // Trunk radius increase per unit energy invested
+const TRUNK_RATE = 0.00004;      // Trunk radius increase per unit energy invested
 const BRANCH_INTERVAL = 0.3;    // New branch every 0.3m of height
 
 // ── Growth limits (biological maximums) ──────────────────────────
 const MAX_HEIGHT = 25;           // Meters — tallest temperate trees
 const MAX_LEAF_AREA = 40;        // m² — canopy limit
 const MAX_ROOT_DEPTH = 12;       // Meters — deepest tap roots
-const MAX_TRUNK_RADIUS = 1.5;    // Meters — structural limit
+const MAX_TRUNK_RADIUS = 0.6;    // Meters — structural limit (1.2m diameter mature tree)
 
 // ── Self-shading ─────────────────────────────────────────────────
 const SELF_SHADING_ONSET = 2.0;  // m² leaf area before shading begins
