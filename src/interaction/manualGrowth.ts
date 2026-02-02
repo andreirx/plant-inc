@@ -16,17 +16,20 @@ export const COST_SPROUT_LATERAL = 5;
 export const COST_EXTEND_LATERAL = 3;
 export const COST_GROW_TALLER = 4;
 export const COST_GROW_DEEPER = 4;
+export const COST_THICKEN_TRUNK = 3;
 
 // ── Growth amounts ──
 const BRANCH_EXTEND = 0.15;  // meters per click
 const ROOT_EXTEND = 0.15;
 const HEIGHT_GROW = 0.3;
 const ROOT_DEPTH_GROW = 0.3;
+const TRUNK_THICKEN = 0.002; // +2mm radius per click
 const NEW_BRANCH_LENGTH = 0.3;
 const NEW_ROOT_LENGTH = 0.3;
 
 // ── Hit-testing thresholds ──
-const TRUNK_TOP_ZONE = 0.15; // Fraction of trunk height considered "top"
+const TRUNK_TOP_ZONE = 0.15;    // Fraction of trunk height considered "top"
+const TRUNK_BASE_ZONE = 0.20;   // Fraction of trunk height considered "base" (thicken)
 const TAP_BOTTOM_ZONE = 0.15;
 const HIT_RADIUS_PX = 30;    // Max pixel distance for a hit
 
@@ -34,6 +37,7 @@ export type GrowthAction =
   | { type: 'sprout_branch'; heightFraction: number; side: -1 | 1 }
   | { type: 'extend_branch'; branchId: number }
   | { type: 'grow_taller' }
+  | { type: 'thicken_trunk' }
   | { type: 'sprout_lateral'; depthFraction: number; side: -1 | 1 }
   | { type: 'extend_lateral'; rootId: number }
   | { type: 'grow_deeper' }
@@ -239,7 +243,16 @@ export function hitTestShoot(
         plantX, plantY,
       };
     }
-    // Sprout new branch
+    // Trunk base → thicken trunk
+    if (trunkHit.heightFraction < TRUNK_BASE_ZONE) {
+      return {
+        action: { type: 'thicken_trunk' },
+        cost: COST_THICKEN_TRUNK,
+        label: `Thicken trunk (${COST_THICKEN_TRUNK} NRG)`,
+        plantX, plantY,
+      };
+    }
+    // Middle → sprout new branch
     const side: -1 | 1 = plantX < 0 ? -1 : 1;
     return {
       action: { type: 'sprout_branch', heightFraction: trunkHit.heightFraction, side },
@@ -361,6 +374,11 @@ export function executeGrowthAction(
       plant.biomass += 0.01;
       break;
 
+    case 'thicken_trunk':
+      plant.trunkRadius += TRUNK_THICKEN;
+      plant.biomass += 0.008;
+      break;
+
     case 'sprout_lateral': {
       const baseAngle = action.side === 1
         ? Math.PI * 0.15   // Right side, slightly downward
@@ -403,6 +421,7 @@ export function getActionCost(action: GrowthAction): number {
     case 'sprout_branch': return COST_SPROUT_BRANCH;
     case 'extend_branch': return COST_EXTEND_BRANCH;
     case 'grow_taller': return COST_GROW_TALLER;
+    case 'thicken_trunk': return COST_THICKEN_TRUNK;
     case 'sprout_lateral': return COST_SPROUT_LATERAL;
     case 'extend_lateral': return COST_EXTEND_LATERAL;
     case 'grow_deeper': return COST_GROW_DEEPER;

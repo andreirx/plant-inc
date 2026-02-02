@@ -8,7 +8,7 @@ import { Graphics, Text, TextStyle } from 'pixi.js';
 import { type SpeciesInstance } from '../../core/state';
 import { type BranchNode, type PlantRenderResult } from './plantDrawer';
 import {
-  COST_SPROUT_BRANCH, COST_EXTEND_BRANCH, COST_GROW_TALLER,
+  COST_SPROUT_BRANCH, COST_EXTEND_BRANCH, COST_GROW_TALLER, COST_THICKEN_TRUNK,
   COST_SPROUT_LATERAL, COST_EXTEND_LATERAL, COST_GROW_DEEPER,
 } from '../../interaction/manualGrowth';
 
@@ -196,6 +196,15 @@ function drawDiamond(
   gfx.stroke({ color, width: 1.5, alpha });
 }
 
+/** Draw a horizontal ring marker (for trunk thicken). */
+function drawRing(
+  gfx: Graphics, px: number, py: number,
+  width: number, color: number, alpha: number,
+): void {
+  gfx.ellipse(px, py, width, width * 0.3);
+  gfx.stroke({ color, width: 2, alpha });
+}
+
 /**
  * Draw persistent growth-point markers on the AIR view (shoot).
  * Shows where the player can click to add branches or grow taller.
@@ -210,14 +219,25 @@ export function drawShootGrowthPoints(
   const energy = plant.energy;
   const markerSize = Math.max(4, Math.min(8, scale * 0.05));
 
-  // --- Trunk spawn points (new branch locations) ---
   const trunkPts = walkChain(result.shoot.root);
+
+  // --- Trunk base: thicken marker (ring at ~10% height) ---
+  const canThicken = energy >= COST_THICKEN_TRUNK;
+  const basePt = samplePolyline(trunkPts, 0.10);
+  {
+    const { px, py } = toPixel(basePt.x, basePt.y, ox, oy, scale);
+    const ringW = Math.max(8, plant.trunkRadius * scale * 3 + 6);
+    drawRing(gfx, px, py, ringW,
+      canThicken ? 0xff9800 : RED, canThicken ? 0.7 : 0.35);
+  }
+
+  // --- Trunk spawn points (new branch locations) — 20%-85% ---
   const canSprout = energy >= COST_SPROUT_BRANCH;
   const spawnColor = canSprout ? GREEN : RED;
   const spawnAlpha = canSprout ? 0.7 : 0.35;
 
   for (let i = 1; i <= SPAWN_POINTS; i++) {
-    const t = 0.2 + (i / (SPAWN_POINTS + 1)) * 0.65; // 20%-85% of trunk height
+    const t = 0.2 + (i / (SPAWN_POINTS + 1)) * 0.65;
     const pt = samplePolyline(trunkPts, t);
     const { px, py } = toPixel(pt.x, pt.y, ox, oy, scale);
     drawPlus(gfx, px, py, markerSize, spawnColor, spawnAlpha);
@@ -238,8 +258,6 @@ export function drawShootGrowthPoints(
   const extAlpha = canExtend ? 0.75 : 0.35;
 
   for (const mb of plant.manualBranches) {
-    // Approximate the tip position in plant-space
-    // Find trunk spawn Y from heightFraction
     const spawnPt = samplePolyline(trunkPts, mb.heightFraction);
     const tipX = spawnPt.x + Math.cos(mb.angle) * mb.length;
     const tipY = spawnPt.y + Math.sin(mb.angle) * mb.length;
