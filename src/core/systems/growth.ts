@@ -97,6 +97,16 @@ const LEAF_GOLDENROD = 0xdaa520;
 const LEAF_ORANGE = 0xff8c00;
 const LEAF_BROWN = 0x8b4513;
 
+/** Soft diminishing-returns curve: ~1.0 until 60% of max, smooth taper to 0 at max.
+ *  Uses smoothstep on the upper 40% range so growth feels natural. */
+function softCap(current: number, max: number): number {
+  const frac = Math.min(1, current / max);
+  if (frac < 0.6) return 1.0;
+  // Smoothstep from 1.0 at frac=0.6 to 0.0 at frac=1.0
+  const t = (frac - 0.6) / 0.4; // 0..1
+  return 1 - t * t * (3 - 2 * t);
+}
+
 export function updateGrowth(state: SimulationState): void {
   const { climate, species } = state;
   const stats = species.stats;
@@ -261,7 +271,7 @@ function simulatePlant(
 
     // Investment budget: spend a fraction of surplus
     const surplus = plant.energy - dynamicThreshold;
-    const investment = Math.min(surplus * 0.4, 5.0); // Cap per-tick investment
+    const investment = Math.min(surplus * 0.4, 8.0); // Cap per-tick investment
 
     // Nutrient limitation: low soil NPK throttles growth directly
     const nutrientFactor = Math.min(
@@ -269,11 +279,14 @@ function simulatePlant(
       Math.min(soil.nutrients.phosphorus / 0.08, 1.0),   // Below 8% P → growth limited
     );
 
-    // Diminishing returns: growth slows as plant approaches maximum size
-    const heightRoom = Math.max(0, 1 - plant.height / MAX_HEIGHT);
-    const leafRoom = Math.max(0, 1 - plant.leafArea / MAX_LEAF_AREA);
-    const rootRoom = Math.max(0, 1 - plant.rootDepth / MAX_ROOT_DEPTH);
-    const trunkRoom = Math.max(0, 1 - plant.trunkRadius / MAX_TRUNK_RADIUS);
+    // Diminishing returns: growth slows as plant approaches maximum size.
+    // Soft curve: full speed until 60% of max, then smooth taper to zero.
+    // At 50% → 0.94, at 70% → 0.75, at 90% → 0.31, at 100% → 0.
+    // (Old linear: at 50% → 0.5, at 70% → 0.3 — too aggressive)
+    const heightRoom = softCap(plant.height, MAX_HEIGHT);
+    const leafRoom = softCap(plant.leafArea, MAX_LEAF_AREA);
+    const rootRoom = softCap(plant.rootDepth, MAX_ROOT_DEPTH);
+    const trunkRoom = softCap(plant.trunkRadius, MAX_TRUNK_RADIUS);
 
     // Structural constraint: height limited by trunk radius
     // A thin trunk can't support a tall tree (buckling limit)
@@ -286,17 +299,14 @@ function simulatePlant(
     const growthMod = nutrientFactor;
 
     // Determine growth strategy based on current bottleneck
-    // Use waterFactor (stomata openness) instead of raw soil moisture —
-    // a tree with deep roots tapping groundwater is NOT drought-stressed
-    // even when surface soil is bone-dry.
-    const waterLimited = waterFactor < 0.5;
+    const waterLimited = soil.moisture < 0.2;
     const lightLimited = climate.sunlight < 0.3;
 
     if (waterLimited) {
-      // Drought response: prioritize root growth, but still grow height/trunk slowly
+      // Drought response: prioritize root growth, still grow other organs slowly
       const pBonus = 1 + pAbsorbed * 3;
       plant.rootDepth += ROOT_RATE * investment * stats.root_growth_speed * pBonus * rootRoom * growthMod;
-      plant.height += HEIGHT_RATE * investment * 0.15 * heightRoom * structuralFactor * growthMod;
+      plant.height += HEIGHT_RATE * investment * 0.2 * heightRoom * structuralFactor * growthMod;
       plant.leafArea += LEAF_RATE * investment * 0.1 * leafRoom * growthMod;
       plant.trunkRadius += TRUNK_RATE * investment * 0.3 * trunkRoom * growthMod;
     } else if (lightLimited) {
