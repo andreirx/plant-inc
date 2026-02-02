@@ -44,7 +44,7 @@ async function bootstrap(): Promise<void> {
   coordPanel.style.cssText =
     'display:flex;flex-direction:column;gap:4px;padding:6px;' +
     'background:rgba(0,0,0,0.75);font-family:monospace;font-size:11px;' +
-    'color:#e0e0e0;z-index:5;width:52px;flex-shrink:0;';
+    'color:#e0e0e0;z-index:5;width:62px;flex-shrink:0;';
 
   const makeInput = (label: string): HTMLInputElement => {
     const lbl = document.createElement('div');
