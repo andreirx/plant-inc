@@ -34,6 +34,7 @@
 import { GRID_WIDTH, GRID_HEIGHT, TICKS_PER_DAY } from '../constants';
 import { type SimulationState, type SpeciesInstance, type GridCell } from '../state';
 import { type StatKey } from '../data/traits';
+import { BIOMES } from '../data/biomes';
 
 // ── Photosynthesis ──────────────────────────────────────────────
 const PHOTO_BASE = 0.8;          // Glucose produced per m² leaf at full sun, per tick
@@ -80,14 +81,13 @@ const HEALTH_RECOVERY = 0.003;   // Recovery per tick when well-fed
 const STARVATION_DRAIN = 0.012;  // Health loss per tick when starving
 const OCEAN_DAMAGE = 0.1;        // Health loss per tick for plants in water
 
-// ── Seasonal phenology ──────────────────────────────────────────
-const AUTUMN_START = 182;            // Day of year autumn begins
-const WINTER_START = 273;            // Day of year winter begins
-const SPRING_END = 91;              // Day of year spring ends
-const AUTUMN_LEAF_DROP_RATE = 0.03;  // 3% of visibleLeafArea lost per day
-const SPRING_LEAF_REGROW_RATE = 0.05; // 5% regrown per day
-const SPRING_REGROW_COST = 0.5;      // Energy per m² of leaf regenerated
-const DORMANCY_TEMP_THRESHOLD = 5;   // °C — dormancy breaks above this
+// ── Seasonal phenology (temperature-driven, not calendar-driven) ──
+const LEAF_DROP_TEMP = 10;              // °C local — below this, leaves start dropping
+const DORMANCY_TEMP = 5;               // °C local — below this, full dormancy
+// Leaf regrow happens whenever localTemp >= LEAF_DROP_TEMP (the else branch)
+const AUTUMN_LEAF_DROP_RATE = 0.03;    // 3% of visibleLeafArea lost per day
+const SPRING_LEAF_REGROW_RATE = 0.05;  // 5% regrown per day
+const SPRING_REGROW_COST = 0.5;        // Energy per m² of leaf regenerated
 const DORMANCY_RESPIRATION_MULT = 0.3; // 70% reduction during dormancy
 const FRUIT_MATURITY_TICKS = 50;     // Ticks at fruit=1.0 before drop
 const FRUIT_COOLDOWN_TICKS = 200;    // No flowering for this long after fruit drop
@@ -375,54 +375,52 @@ function simulatePlant(
   }
 
   // ═══════════════════════════════════════════════════════════════
-  // 5c. SEASONAL PHENOLOGY — Deciduous leaf cycle & dormancy
+  // 5c. SEASONAL PHENOLOGY — Temperature-driven deciduous cycle
   // ═══════════════════════════════════════════════════════════════
+  // Uses LOCAL temperature (global + biome offset) so warm biomes
+  // like savanna/tropical never go dormant, while tundra stays dormant longer.
 
-  const dayOfYear = climate.dayOfYear;
+  const biome = BIOMES[soil.biomeId.toUpperCase()];
+  const localTemp = climate.temperature + (biome?.climateModifier.tempOffset ?? 0);
 
-  if (dayOfYear >= AUTUMN_START && dayOfYear < WINTER_START) {
-    // ── AUTUMN: leaves change color and drop ──
-    const autumnProgress = (dayOfYear - AUTUMN_START) / (WINTER_START - AUTUMN_START); // 0..1
+  if (localTemp < DORMANCY_TEMP) {
+    // ── COLD: full dormancy ──
+    plant.dormant = true;
+    plant.visibleLeafArea = Math.max(0, plant.visibleLeafArea * (1 - 0.01 / TICKS_PER_DAY));
+    plant.leafColor = LEAF_BROWN;
+    // Clear reproduction state
+    plant.flowering = 0;
+    plant.fruit = 0;
 
-    // Leaf drop: visibleLeafArea decreases toward 0
-    const dropPerTick = AUTUMN_LEAF_DROP_RATE / TICKS_PER_DAY;
+  } else if (localTemp < LEAF_DROP_TEMP) {
+    // ── COOL: leaves change color and drop, but not fully dormant ──
+    // Autumn-like behavior: gradual leaf loss and color change
+    const chillFactor = 1 - (localTemp - DORMANCY_TEMP) / (LEAF_DROP_TEMP - DORMANCY_TEMP); // 1 at dormancy, 0 at drop temp
+    const dropPerTick = AUTUMN_LEAF_DROP_RATE * (0.3 + 0.7 * chillFactor) / TICKS_PER_DAY;
     const dropped = plant.visibleLeafArea * dropPerTick;
     plant.visibleLeafArea = Math.max(0, plant.visibleLeafArea - dropped);
 
     // Dropped leaves return small nutrient to soil (decomposition)
     soil.nutrients.nitrogen = Math.min(1.0, soil.nutrients.nitrogen + dropped * 0.01);
 
-    // Leaf color: green → yellow-green → goldenrod → orange → brown
-    plant.leafColor = lerpAutumnColor(autumnProgress);
+    // Leaf color: interpolate from green toward brown based on chill
+    plant.leafColor = lerpAutumnColor(chillFactor);
 
-  } else if (dayOfYear >= WINTER_START || dayOfYear < SPRING_END) {
-    // ── WINTER: dormancy ──
-    plant.dormant = true;
-    plant.visibleLeafArea = Math.max(0, plant.visibleLeafArea * (1 - 0.01 / TICKS_PER_DAY)); // Any remaining leaves drop
-    plant.leafColor = LEAF_BROWN;
-    // Clear reproduction state — flowers and fruit don't persist through winter
-    plant.flowering = 0;
-    plant.fruit = 0;
-
-  } else if (dayOfYear >= SPRING_END && dayOfYear < AUTUMN_START) {
-    // ── SPRING / SUMMER: break dormancy, regrow leaves ──
-
-    // Break dormancy when warm enough
-    if (plant.dormant && climate.temperature > DORMANCY_TEMP_THRESHOLD) {
+  } else {
+    // ── WARM: break dormancy and regrow leaves ──
+    if (plant.dormant) {
       plant.dormant = false;
     }
 
-    if (!plant.dormant) {
-      // Regrow visibleLeafArea toward leafArea
-      if (plant.visibleLeafArea < plant.leafArea) {
-        const regrowPerTick = SPRING_LEAF_REGROW_RATE * plant.leafArea / TICKS_PER_DAY;
-        const regrown = Math.min(regrowPerTick, plant.leafArea - plant.visibleLeafArea);
-        plant.visibleLeafArea += regrown;
-        // Leaf regrowth costs energy
-        plant.energy -= regrown * SPRING_REGROW_COST;
-      }
-      plant.leafColor = LEAF_GREEN;
+    // Regrow visibleLeafArea toward leafArea
+    if (plant.visibleLeafArea < plant.leafArea) {
+      const regrowPerTick = SPRING_LEAF_REGROW_RATE * plant.leafArea / TICKS_PER_DAY;
+      const regrown = Math.min(regrowPerTick, plant.leafArea - plant.visibleLeafArea);
+      plant.visibleLeafArea += regrown;
+      // Leaf regrowth costs energy
+      plant.energy -= regrown * SPRING_REGROW_COST;
     }
+    plant.leafColor = LEAF_GREEN;
   }
 
   // Keep visibleLeafArea in sync: never exceed actual leafArea
