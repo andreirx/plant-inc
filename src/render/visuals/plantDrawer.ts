@@ -132,32 +132,6 @@ export interface PlantRenderResult {
   soilOffsetY: number;
 }
 
-let _lastDrawLog = 0;
-
-function countNodes(node: BranchNode): number {
-  let count = 1;
-  for (const child of node.children) count += countNodes(child);
-  return count;
-}
-
-/** Count branch children (depth >= 1) along a chain, excluding chain links (depth 0). */
-function countBranchChildren(chainRoot: BranchNode): number {
-  let branches = 0;
-  let seg: BranchNode | null = chainRoot;
-  while (seg) {
-    let nextChain: BranchNode | null = null;
-    for (const child of seg.children) {
-      if (child.depth === 0) {
-        nextChain = child; // Next chain segment
-      } else {
-        branches++; // Actual branch/lateral
-      }
-    }
-    seg = nextChain;
-  }
-  return branches;
-}
-
 // ══════════════════════════════════════════════════════════════════
 //  PUBLIC API
 // ══════════════════════════════════════════════════════════════════
@@ -205,35 +179,6 @@ export function drawPlant(
 
   // Unified scale: most restrictive wins — everything fits both views
   const scale = Math.min(airScaleY, soilScaleY, widthScale);
-
-  // Debug: log bounds, scale, and node counts once per second
-  const now = performance.now();
-  if (now - _lastDrawLog > 1000) {
-    _lastDrawLog = now;
-    const sb = shoot.bounds;
-    const rb = roots.bounds;
-    const shootNodes = countNodes(shoot.root);
-    const rootNodes = countNodes(roots.root);
-    console.log(
-      `SHOOT bounds: minY=${sb.minY.toFixed(2)} maxY=${sb.maxY.toFixed(2)} ` +
-      `minX=${sb.minX.toFixed(2)} maxX=${sb.maxX.toFixed(2)} → aboveH=${aboveH.toFixed(2)}m W=${(sb.maxX - sb.minX).toFixed(2)}m`,
-    );
-    console.log(
-      `ROOT bounds: minY=${rb.minY.toFixed(2)} maxY=${rb.maxY.toFixed(2)} ` +
-      `minX=${rb.minX.toFixed(2)} maxX=${rb.maxX.toFixed(2)} → belowH=${belowH.toFixed(2)}m W=${(rb.maxX - rb.minX).toFixed(2)}m`,
-    );
-    console.log(
-      `SCALE: ${scale.toFixed(2)}px/m (airScaleY=${airScaleY.toFixed(2)} soilScaleY=${soilScaleY.toFixed(2)} ` +
-      `widthScale=${widthScale.toFixed(2)}) views: air=${airW}x${airH} soil=${soilW}x${soilH}`,
-    );
-    const trunkBranches = countBranchChildren(shoot.root);
-    const tapLaterals = countBranchChildren(roots.root);
-    console.log(
-      `TREE: ${shootNodes} shoot nodes (${trunkBranches} branches off trunk), ` +
-      `${rootNodes} root nodes (${tapLaterals} laterals off taproot), ` +
-      `${shoot.leaves.length} leaves, branchCount=${plant.branchCount}`,
-    );
-  }
 
   // Horizontal center: use combined center of both bounds
   const shootCenterX = (shoot.bounds.minX + shoot.bounds.maxX) / 2;
@@ -568,8 +513,11 @@ function buildShootStructure(
     const trunkRadAtH = trunkR * (1 - bt * 0.5);
     const branchR = Math.sqrt(trunkRadAtH * trunkRadAtH * branchAreaFrac);
 
-    const remainingAbove = trunkH * (1 - bt);
-    const branchLen = remainingAbove * branchLenMult;
+    // Gentle taper: length drops to 40% at the top, not 0%.
+    // This prevents the "upper sibling" in each pair from being much shorter
+    // than the lower one, which caused permanent left/right asymmetry.
+    const lengthBudget = trunkH * (1 - bt * 0.6);
+    const branchLen = lengthBudget * branchLenMult;
 
     const side = (bi % 2 === 0 ? -1 : 1) * branchSideFlip;
     const baseSpread = 0.4 + (1 - bt) * 0.6;
@@ -836,8 +784,9 @@ function buildRootStructure(plant: SpeciesInstance): RootStructure {
     const tapRadAtD = tapRootRadius * (1 - lt * 0.5);
     const latR = Math.sqrt(tapRadAtD * tapRadAtD * latAreaFrac);
 
-    const remainingBelow = rootD * (1 - lt);
-    const latLen = Math.max(rootD * 0.15, remainingBelow * latLenMult);
+    // Gentle taper: same fix as shoot branches — prevents pair asymmetry.
+    const lengthBudget = rootD * (1 - lt * 0.6);
+    const latLen = Math.max(rootD * 0.15, lengthBudget * latLenMult);
 
     const side = (li % 2 === 0 ? -1 : 1) * rootSideFlip;
     const surfaceAngle = Math.PI * 0.08;
