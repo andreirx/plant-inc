@@ -12,6 +12,7 @@ import { computeStats } from './data/traits';
 import { generateWorld } from './systems/mapGenerator';
 
 const STORAGE_KEY = 'plant-inc-save';
+let _savingDisabled = false;
 
 /** A sparse cell patch — only cells with plants. */
 interface CellPatch {
@@ -102,6 +103,7 @@ function deserialize(data: Record<string, unknown>): void {
 
 /** Save current state to localStorage. */
 export function saveGame(): void {
+  if (_savingDisabled) return;
   try {
     const json = JSON.stringify(serialize(state));
     localStorage.setItem(STORAGE_KEY, json);
@@ -129,8 +131,10 @@ export function loadGame(): boolean {
   }
 }
 
-/** Clear saved state and reset to fresh game. */
+/** Clear saved state and reset to fresh game. Disables further saves to
+ *  prevent beforeunload from re-saving the old state before reload. */
 export function clearSave(): void {
+  _savingDisabled = true;
   localStorage.removeItem(STORAGE_KEY);
 }
 
