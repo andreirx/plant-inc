@@ -9,13 +9,13 @@
 import { type SpeciesInstance, type ManualBranch, type ManualRoot } from '../core/state';
 import { type BranchNode, type PlantRenderResult } from '../render/visuals/plantDrawer';
 
-// ── Energy costs ──
-const COST_SPROUT_BRANCH = 5;
-const COST_EXTEND_BRANCH = 3;
-const COST_SPROUT_LATERAL = 5;
-const COST_EXTEND_LATERAL = 3;
-const COST_GROW_TALLER = 4;
-const COST_GROW_DEEPER = 4;
+// ── Energy costs (exported for overlay affordability checks) ──
+export const COST_SPROUT_BRANCH = 5;
+export const COST_EXTEND_BRANCH = 3;
+export const COST_SPROUT_LATERAL = 5;
+export const COST_EXTEND_LATERAL = 3;
+export const COST_GROW_TALLER = 4;
+export const COST_GROW_DEEPER = 4;
 
 // ── Growth amounts ──
 const BRANCH_EXTEND = 0.15;  // meters per click

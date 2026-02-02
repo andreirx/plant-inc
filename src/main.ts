@@ -17,7 +17,7 @@ import { initInspector } from './ui/components/inspector';
 import { initEvolutionUI } from './ui/components/evolution';
 import { initSpeedControls } from './ui/components/speedControls';
 import { hitTestShoot, hitTestRoots, executeGrowthAction } from './interaction/manualGrowth';
-import { initOverlay, updateOverlay, flashAt, hideOverlay } from './render/visuals/growthOverlay';
+import { initOverlay, updateOverlay, flashAt, hideOverlay, drawShootGrowthPoints, drawRootGrowthPoints } from './render/visuals/growthOverlay';
 
 async function bootstrap(): Promise<void> {
   const appContainer = document.getElementById('app');
@@ -71,7 +71,14 @@ async function bootstrap(): Promise<void> {
   // Last render result — used by click-to-grow interaction
   let lastRenderResult: PlantRenderResult | null = null;
 
-  // --- Growth overlay layers (hover highlights) ---
+  // --- Growth point markers (persistent, always visible) ---
+  const airGrowthPtsGfx = new Graphics();
+  airApp.stage.addChild(airGrowthPtsGfx);
+
+  const soilGrowthPtsGfx = new Graphics();
+  soilApp.stage.addChild(soilGrowthPtsGfx);
+
+  // --- Growth overlay layers (hover highlights, on top of markers) ---
   const airOverlayGfx = new Graphics();
   airApp.stage.addChild(airOverlayGfx);
   initOverlay(airOverlayGfx);
@@ -213,10 +220,14 @@ async function bootstrap(): Promise<void> {
           lastRenderResult.airOffsetY,
           lastRenderResult.shoot.bounds.maxX,
         );
+        drawShootGrowthPoints(airGrowthPtsGfx, selectedPlant, lastRenderResult);
+        drawRootGrowthPoints(soilGrowthPtsGfx, selectedPlant, lastRenderResult);
       }
     } else {
       shootGfx.clear();
       rootGfx.clear();
+      airGrowthPtsGfx.clear();
+      soilGrowthPtsGfx.clear();
       lastRenderResult = null;
     }
   }
