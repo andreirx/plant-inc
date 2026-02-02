@@ -7,6 +7,7 @@ import { GRID_WIDTH, GRID_HEIGHT } from './core/constants';
 import { generateWorld } from './core/systems/mapGenerator';
 import { updateClimate } from './core/systems/climate';
 import { updateGrowth } from './core/systems/growth';
+import { updateDispersal } from './core/systems/dispersal';
 import { createTerrainLayer, TILE_SIZE } from './render/layers/terrainLayer';
 import { createPlantLayer, updatePlantLayer } from './render/layers/plantLayer';
 import { createCursorLayer, updateCursorLayer } from './render/layers/cursorLayer';
@@ -197,6 +198,7 @@ async function bootstrap(): Promise<void> {
     state.tick++;
     updateClimate(state);
     updateGrowth(state);
+    updateDispersal(state);
 
     // Auto-save every ~30 seconds of real time (600 ticks at 20Hz)
     if (state.tick % 600 === 0) {

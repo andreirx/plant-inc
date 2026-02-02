@@ -89,7 +89,6 @@ const AUTUMN_LEAF_DROP_RATE = 0.03;    // 3% of visibleLeafArea lost per day
 const SPRING_LEAF_REGROW_RATE = 0.05;  // 5% regrown per day
 const SPRING_REGROW_COST = 0.5;        // Energy per m² of leaf regenerated
 const DORMANCY_RESPIRATION_MULT = 0.3; // 70% reduction during dormancy
-const FRUIT_MATURITY_TICKS = 50;     // Ticks at fruit=1.0 before drop
 const FRUIT_COOLDOWN_TICKS = 200;    // No flowering for this long after fruit drop
 const LEAF_GREEN = 0x2d8a4e;
 const LEAF_YELLOW_GREEN = 0x9acd32;
@@ -332,29 +331,7 @@ function simulatePlant(
     }
   }
 
-  // ═══════════════════════════════════════════════════════════════
-  // 5b. FLOWER SENESCENCE & FRUIT DROP
-  // ═══════════════════════════════════════════════════════════════
-
-  // Flowers wilt after fruit is ripe
-  if (plant.fruit >= 1.0 && plant.flowering > 0) {
-    plant.flowering = Math.max(0, plant.flowering - 0.05);
-  }
-
-  // Fruit drops after maturity period
-  if (plant.fruit >= 1.0) {
-    // Track how long fruit has been ripe (approximate via energy cost as proxy)
-    // Use a simple tick check: fruit stays ripe for FRUIT_MATURITY_TICKS
-    if (plant.lastFruitDrop === 0 || ticksSinceFruitDrop > FRUIT_COOLDOWN_TICKS + FRUIT_MATURITY_TICKS) {
-      // First time reaching 1.0 or enough time has passed — start maturity countdown
-      // We use age modulo to approximate — drop when fruit has been at 1.0 for ~50 ticks
-      if (plant.age % FRUIT_MATURITY_TICKS === 0) {
-        plant.fruit = 0;
-        plant.flowering = 0;
-        plant.lastFruitDrop = state.tick;
-      }
-    }
-  }
+  // (5b: Flower senescence & fruit drop moved to dispersal.ts)
 
   // ═══════════════════════════════════════════════════════════════
   // 5c. SEASONAL PHENOLOGY — Temperature-driven deciduous cycle
