@@ -386,6 +386,9 @@ function simulatePlant(
     plant.dormant = true;
     plant.visibleLeafArea = Math.max(0, plant.visibleLeafArea * (1 - 0.01 / TICKS_PER_DAY)); // Any remaining leaves drop
     plant.leafColor = LEAF_BROWN;
+    // Clear reproduction state — flowers and fruit don't persist through winter
+    plant.flowering = 0;
+    plant.fruit = 0;
 
   } else if (dayOfYear >= SPRING_END && dayOfYear < AUTUMN_START) {
     // ── SPRING / SUMMER: break dormancy, regrow leaves ──

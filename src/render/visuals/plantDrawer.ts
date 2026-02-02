@@ -524,7 +524,9 @@ function buildShootStructure(
     const remainingAbove = trunkH * (1 - bt);
     const branchLen = remainingAbove * bRng.range(0.25, 0.5);
 
-    const side = bi % 2 === 0 ? -1 : 1;
+    // Alternate sides; which side gets the first (longest) branch depends on seed
+    const branchSideFlip = Math.floor(plant.phenotypeSeed * 7) % 2 === 0 ? 1 : -1;
+    const side = (bi % 2 === 0 ? -1 : 1) * branchSideFlip;
     const baseSpread = 0.4 + (1 - bt) * 0.6;
     let branchAngle = -Math.PI / 2 + side * baseSpread + bRng.range(-0.15, 0.15);
     branchAngle = Math.max(-Math.PI + Math.PI / 9, Math.min(-Math.PI / 9, branchAngle));
@@ -733,7 +735,9 @@ function buildRootStructure(plant: SpeciesInstance): RootStructure {
     const latLen = Math.max(rootD * 0.15, remainingBelow * lRng.range(0.5, 0.9));
 
     // Angles: surface roots nearly horizontal, deep roots at 36° from horizontal
-    const side = li % 2 === 0 ? -1 : 1;
+    // Alternate sides; which side gets first lateral depends on seed (mirrors shoot logic)
+    const rootSideFlip = Math.floor(plant.phenotypeSeed * 7) % 2 === 0 ? 1 : -1;
+    const side = (li % 2 === 0 ? -1 : 1) * rootSideFlip;
     const surfaceAngle = Math.PI * 0.08; // 14° from horizontal — very wide
     const deepAngle = Math.PI * 0.2;     // 36° from horizontal — still spreading
     const baseAngle = surfaceAngle + lt * (deepAngle - surfaceAngle);
