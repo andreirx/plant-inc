@@ -124,6 +124,12 @@ const GROUND_COLOR = 0x4a3728;
 
 let _lastDrawLog = 0;
 
+function countNodes(node: BranchNode): number {
+  let count = 1;
+  for (const child of node.children) count += countNodes(child);
+  return count;
+}
+
 // ══════════════════════════════════════════════════════════════════
 //  PUBLIC API
 // ══════════════════════════════════════════════════════════════════
@@ -172,12 +178,14 @@ export function drawPlant(
   // Unified scale: most restrictive wins — everything fits both views
   const scale = Math.min(airScaleY, soilScaleY, widthScale);
 
-  // Debug: log bounds and scale once per second
+  // Debug: log bounds, scale, and node counts once per second
   const now = performance.now();
   if (now - _lastDrawLog > 1000) {
     _lastDrawLog = now;
     const sb = shoot.bounds;
     const rb = roots.bounds;
+    const shootNodes = countNodes(shoot.root);
+    const rootNodes = countNodes(roots.root);
     console.log(
       `SHOOT bounds: minY=${sb.minY.toFixed(2)} maxY=${sb.maxY.toFixed(2)} ` +
       `minX=${sb.minX.toFixed(2)} maxX=${sb.maxX.toFixed(2)} → aboveH=${aboveH.toFixed(2)}m W=${(sb.maxX - sb.minX).toFixed(2)}m`,
@@ -189,6 +197,11 @@ export function drawPlant(
     console.log(
       `SCALE: ${scale.toFixed(2)}px/m (airScaleY=${airScaleY.toFixed(2)} soilScaleY=${soilScaleY.toFixed(2)} ` +
       `widthScale=${widthScale.toFixed(2)}) views: air=${airW}x${airH} soil=${soilW}x${soilH}`,
+    );
+    console.log(
+      `TREE: ${shootNodes} shoot nodes (${shoot.root.children.length} trunk branches), ` +
+      `${rootNodes} root nodes (${roots.root.children.length} taproot laterals), ` +
+      `${shoot.leaves.length} leaves, branchCount=${plant.branchCount}`,
     );
   }
 
@@ -380,82 +393,124 @@ function buildShootStructure(
     return node;
   }
 
-  // ── Build trunk as primary axis ──
+  // ── Build trunk as a CHAIN of tapered segments ──
+  // Each segment is its own BranchNode, linked parent→child.
+  // This gives the trunk visual texture (taper, wobble per segment)
+  // instead of one flat 2-line stick.
   const trunkH = plant.height;
   const trunkR = Math.max(plant.trunkRadius, 0.003);
 
-  // Trunk: straight up from ground with slight character wobble
-  const trunkWobble = rng.range(-0.02, 0.02) * trunkH;
-  const trunkNode: BranchNode = {
-    startX: 0, startY: 0,
-    midX: trunkWobble, midY: -trunkH * 0.5,
-    endX: 0, endY: -trunkH,
-    radius: trunkR, depth: 0,
-    maxDepth: maxBranchDepth + 1,
-    children: [],
-  };
-  expand(0, 0, trunkR);
-  expand(trunkWobble, -trunkH * 0.5, trunkR * 0.75);
-  expand(0, -trunkH, trunkR * 0.5);
+  // One segment per ~1m, min 3 for even tiny seedlings
+  const numTrunkSegs = Math.max(3, Math.ceil(trunkH / 1.0));
+  const segLen = trunkH / numTrunkSegs;
 
-  // ── Place branches along the trunk (not just at the tip) ──
-  // Branch-free zone on bottom 30% of trunk (bare trunk)
+  // Branch parameters
   const BRANCH_ZONE_START = 0.3;
   const numBranches = Math.max(2, Math.min(14, Math.floor(plant.branchCount * 1.5) + 2));
+  let nextBranchIdx = 0; // Track which branch to spawn next
 
-  for (let i = 0; i < numBranches; i++) {
-    const t = BRANCH_ZONE_START + (1 - BRANCH_ZONE_START) * ((i + 0.5) / numBranches);
-    const spawnY = -trunkH * t;
+  let trunkRoot: BranchNode | null = null;
+  let prevSeg: BranchNode | null = null;
+  let curX = 0;
+  let curY = 0;
 
-    // Trunk tapers: radius at this height
-    const trunkRadAtH = trunkR * (1 - t * 0.5);
-    // Pipe model: each branch gets a fraction of trunk cross-section
-    const branchAreaFrac = rng.range(0.08, 0.2);
-    const branchR = Math.sqrt(trunkRadAtH * trunkRadAtH * branchAreaFrac);
+  for (let seg = 0; seg < numTrunkSegs; seg++) {
+    const t0 = seg / numTrunkSegs;       // Start fraction along trunk
+    const t1 = (seg + 1) / numTrunkSegs; // End fraction
+    const tMid = (t0 + t1) / 2;
 
-    // Branch length proportional to remaining trunk above this point
-    // Lower branches are longer, upper branches are shorter — natural crown shape
-    const remainingAbove = trunkH * (1 - t);
-    const branchLen = remainingAbove * rng.range(0.25, 0.5);
+    // Taper: radius decreases from base to top (60% of base at crown)
+    const r0 = trunkR * (1 - t0 * 0.4);
+    const segRadius = trunkR * (1 - tMid * 0.4);
 
-    // Alternate sides; lower branches spread wider, upper ones tighter
-    const side = i % 2 === 0 ? -1 : 1;
-    const baseSpread = 0.4 + (1 - t) * 0.6; // Bottom: ~1.0 rad spread, top: ~0.4
-    let branchAngle = -Math.PI / 2 + side * baseSpread + rng.range(-0.15, 0.15);
-    branchAngle = Math.max(-Math.PI + Math.PI / 9, Math.min(-Math.PI / 9, branchAngle));
+    // Segment endpoint with slight organic wobble
+    const wobbleX = rng.range(-0.015, 0.015) * segLen;
+    const nextX = curX + wobbleX;
+    const nextY = curY - segLen;
+    const midWobble = rng.range(-0.01, 0.01) * segLen;
 
-    if (branchLen > 0.03 && branchR > 0.0005) {
-      trunkNode.children.push(
-        buildBranch(0, spawnY, branchAngle, branchLen, branchR, 1),
-      );
+    const node: BranchNode = {
+      startX: curX, startY: curY,
+      midX: (curX + nextX) / 2 + midWobble, midY: (curY + nextY) / 2,
+      endX: nextX, endY: nextY,
+      radius: segRadius, depth: 0,
+      maxDepth: maxBranchDepth + 1,
+      children: [],
+    };
+
+    expand(curX, curY, r0);
+    expand(node.midX, node.midY, segRadius);
+    expand(nextX, nextY, segRadius * 0.9);
+
+    // ── Attach branches at this segment if in branch zone ──
+    while (nextBranchIdx < numBranches) {
+      const bt = BRANCH_ZONE_START + (1 - BRANCH_ZONE_START) * ((nextBranchIdx + 0.5) / numBranches);
+      if (bt > t1) break; // This branch belongs to a later segment
+
+      // Spawn point along this segment
+      const localT = (bt - t0) / (t1 - t0);
+      const spawnX = curX + (nextX - curX) * localT;
+      const spawnY = curY + (nextY - curY) * localT;
+
+      const trunkRadAtH = trunkR * (1 - bt * 0.5);
+      const branchAreaFrac = rng.range(0.08, 0.2);
+      const branchR = Math.sqrt(trunkRadAtH * trunkRadAtH * branchAreaFrac);
+
+      const remainingAbove = trunkH * (1 - bt);
+      const branchLen = remainingAbove * rng.range(0.25, 0.5);
+
+      const side = nextBranchIdx % 2 === 0 ? -1 : 1;
+      const baseSpread = 0.4 + (1 - bt) * 0.6;
+      let branchAngle = -Math.PI / 2 + side * baseSpread + rng.range(-0.15, 0.15);
+      branchAngle = Math.max(-Math.PI + Math.PI / 9, Math.min(-Math.PI / 9, branchAngle));
+
+      if (branchLen > 0.03 && branchR > 0.0005) {
+        node.children.push(
+          buildBranch(spawnX, spawnY, branchAngle, branchLen, branchR, 1),
+        );
+      }
+
+      nextBranchIdx++;
     }
+
+    // ── Spikes on this segment ──
+    if (hasSpikes) {
+      const spikesPerSeg = Math.max(1, Math.floor(segLen / 0.5));
+      for (let i = 0; i < spikesPerSeg; i++) {
+        const st = (i + 0.5) / spikesPerSeg;
+        const sx = curX + (nextX - curX) * st;
+        const sy = curY + (nextY - curY) * st;
+        const side = rng.next() > 0.5 ? 1 : -1;
+        const sa = side * (Math.PI / 2) + rng.range(-0.3, 0.3);
+        const sl = 0.05 + rng.next() * 0.08;
+        spikes.push({ x: sx, y: sy, angle: sa, length: sl });
+        expand(sx + Math.cos(sa) * sl, sy + Math.sin(sa) * sl, 0);
+      }
+    }
+
+    // Link into chain: previous segment's child = this segment
+    if (prevSeg) {
+      prevSeg.children.push(node);
+    } else {
+      trunkRoot = node;
+    }
+
+    prevSeg = node;
+    curX = nextX;
+    curY = nextY;
   }
 
   // ── Small leader extension at trunk tip ──
   const leaderLen = trunkH * rng.range(0.03, 0.08);
   const leaderR = trunkR * 0.35;
   const leaderAngle = -Math.PI / 2 + rng.range(-0.08, 0.08);
-  if (leaderLen > 0.02) {
-    trunkNode.children.push(
-      buildBranch(0, -trunkH, leaderAngle, leaderLen, leaderR, 1),
+  if (leaderLen > 0.02 && prevSeg) {
+    prevSeg.children.push(
+      buildBranch(curX, curY, leaderAngle, leaderLen, leaderR, 1),
     );
   }
 
-  // ── Spikes on trunk ──
-  if (hasSpikes) {
-    const n = Math.max(2, Math.floor(trunkH / 0.5));
-    for (let i = 1; i <= n; i++) {
-      const st = i / (n + 1);
-      const sy = -trunkH * st;
-      const side = rng.next() > 0.5 ? 1 : -1;
-      const sa = side * (Math.PI / 2) + rng.range(-0.3, 0.3);
-      const sl = 0.05 + rng.next() * 0.08;
-      spikes.push({ x: 0, y: sy, angle: sa, length: sl });
-      expand(Math.cos(sa) * sl, sy + Math.sin(sa) * sl, 0);
-    }
-  }
-
-  return { root: trunkNode, bounds, leaves, flowers, fruits, spikes, leafColor: plant.leafColor };
+  return { root: trunkRoot!, bounds, leaves, flowers, fruits, spikes, leafColor: plant.leafColor };
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -549,73 +604,107 @@ function buildRootStructure(plant: SpeciesInstance): RootStructure {
     return node;
   }
 
-  // ── Build taproot as primary axis ──
+  // ── Build taproot as a CHAIN of tapered segments ──
+  // Same approach as trunk: each segment is its own BranchNode in a chain.
   const rootD = plant.rootDepth;
-  const wobble = rng.range(-0.02, 0.02) * rootD;
 
-  const tapNode: BranchNode = {
-    startX: 0, startY: 0,
-    midX: wobble, midY: rootD * 0.5,
-    endX: 0, endY: rootD,
-    radius: tapRootRadius, depth: 0,
-    maxDepth: maxSubDepth + 1,
-    children: [],
-  };
-  expand(0, 0, tapRootRadius);
-  expand(wobble, rootD * 0.5, tapRootRadius * 0.75);
-  expand(0, rootD, tapRootRadius * 0.5);
+  const numTapSegs = Math.max(3, Math.ceil(rootD / 1.0));
+  const tapSegLen = rootD / numTapSegs;
 
-  // ── Place lateral roots along the full taproot depth ──
-  // Laterals distributed from near-surface to near-tip
+  // Lateral parameters
   const numLaterals = Math.max(3, Math.min(14, Math.floor(plant.rootDepth * 1.2) + 2));
+  let nextLatIdx = 0;
 
-  for (let i = 0; i < numLaterals; i++) {
-    const t = (i + 0.5) / numLaterals; // 0..1 along taproot
-    const spawnY = rootD * t;
+  let tapRoot: BranchNode | null = null;
+  let prevTapSeg: BranchNode | null = null;
+  let tapX = 0;
+  let tapY = 0;
 
-    // Taproot tapers with depth
-    const tapRadAtDepth = tapRootRadius * (1 - t * 0.5);
-    // Pipe model: each lateral gets a fraction of taproot area
-    const latAreaFrac = rng.range(0.08, 0.2);
-    const latR = Math.sqrt(tapRadAtDepth * tapRadAtDepth * latAreaFrac);
+  for (let seg = 0; seg < numTapSegs; seg++) {
+    const t0 = seg / numTapSegs;
+    const t1 = (seg + 1) / numTapSegs;
+    const tMid = (t0 + t1) / 2;
 
-    // Lateral length proportional to remaining depth below this point
-    // (mirrors shoot: branch length ∝ remaining trunk above)
-    // Surface laterals are longest, deep laterals shorter — natural inverted-tree shape
-    const remainingBelow = rootD * (1 - t);
-    const latLen = remainingBelow * rng.range(0.5, 0.9);
+    // Taper: radius decreases with depth
+    const segRadius = tapRootRadius * (1 - tMid * 0.5);
 
-    // Alternate sides; surface roots spread almost horizontally, deep roots angle down
-    const side = i % 2 === 0 ? -1 : 1;
-    // Surface laterals: ~18° from horizontal. Deep laterals: ~63° from horizontal.
-    const surfaceAngle = Math.PI * 0.1;
-    const deepAngle = Math.PI * 0.35;
-    const baseAngle = surfaceAngle + t * (deepAngle - surfaceAngle);
-    let latAngle = side > 0 ? baseAngle : (Math.PI - baseAngle);
-    latAngle += rng.range(-0.15, 0.15);
-    latAngle = Math.max(Math.PI / 9, Math.min(Math.PI - Math.PI / 9, latAngle));
+    const wobbleX = rng.range(-0.015, 0.015) * tapSegLen;
+    const nextX = tapX + wobbleX;
+    const nextY = tapY + tapSegLen;
+    const midWobble = rng.range(-0.01, 0.01) * tapSegLen;
 
-    if (latLen > 0.02 && latR > 0.0003) {
-      tapNode.children.push(
-        buildLateral(0, spawnY, latAngle, latLen, latR, 1),
-      );
+    const node: BranchNode = {
+      startX: tapX, startY: tapY,
+      midX: (tapX + nextX) / 2 + midWobble, midY: (tapY + nextY) / 2,
+      endX: nextX, endY: nextY,
+      radius: segRadius, depth: 0,
+      maxDepth: maxSubDepth + 1,
+      children: [],
+    };
+
+    expand(tapX, tapY, segRadius);
+    expand(node.midX, node.midY, segRadius);
+    expand(nextX, nextY, segRadius * 0.9);
+
+    // ── Attach laterals at this segment ──
+    while (nextLatIdx < numLaterals) {
+      const lt = (nextLatIdx + 0.5) / numLaterals;
+      if (lt > t1) break;
+
+      const localT = (lt - t0) / (t1 - t0);
+      const spawnX = tapX + (nextX - tapX) * localT;
+      const spawnY = tapY + (nextY - tapY) * localT;
+
+      const tapRadAtD = tapRootRadius * (1 - lt * 0.5);
+      const latAreaFrac = rng.range(0.08, 0.2);
+      const latR = Math.sqrt(tapRadAtD * tapRadAtD * latAreaFrac);
+
+      const remainingBelow = rootD * (1 - lt);
+      const latLen = remainingBelow * rng.range(0.5, 0.9);
+
+      const side = nextLatIdx % 2 === 0 ? -1 : 1;
+      const surfaceAngle = Math.PI * 0.1;
+      const deepAngle = Math.PI * 0.35;
+      const baseAngle = surfaceAngle + lt * (deepAngle - surfaceAngle);
+      let latAngle = side > 0 ? baseAngle : (Math.PI - baseAngle);
+      latAngle += rng.range(-0.15, 0.15);
+      latAngle = Math.max(Math.PI / 9, Math.min(Math.PI - Math.PI / 9, latAngle));
+
+      if (latLen > 0.02 && latR > 0.0003) {
+        node.children.push(
+          buildLateral(spawnX, spawnY, latAngle, latLen, latR, 1),
+        );
+      }
+
+      nextLatIdx++;
     }
+
+    // Link into chain
+    if (prevTapSeg) {
+      prevTapSeg.children.push(node);
+    } else {
+      tapRoot = node;
+    }
+
+    prevTapSeg = node;
+    tapX = nextX;
+    tapY = nextY;
   }
 
   // ── Small root tip extension ──
   const tipLen = rootD * rng.range(0.03, 0.08);
   const tipR = tapRootRadius * 0.3;
   const tipAngle = Math.PI / 2 + rng.range(-0.1, 0.1);
-  if (tipLen > 0.01) {
-    tapNode.children.push(
-      buildLateral(0, rootD, tipAngle, tipLen, tipR, 1),
+  if (tipLen > 0.01 && prevTapSeg) {
+    prevTapSeg.children.push(
+      buildLateral(tapX, tapY, tipAngle, tipLen, tipR, 1),
     );
   }
 
-  // ── Root hairs along taproot itself (absorption zone) ──
+  // ── Root hairs along taproot (absorption zone) ──
   const tapHairCount = Math.max(4, Math.floor(rootD * 2));
   for (let i = 0; i < tapHairCount; i++) {
-    const t = rng.range(0.5, 0.95); // Hairs mostly in lower half
+    const t = rng.range(0.5, 0.95);
     const hy = rootD * t;
     const ha = rng.range(0, Math.PI * 2);
     const hl = 0.01 + rng.next() * 0.04;
@@ -623,7 +712,7 @@ function buildRootStructure(plant: SpeciesInstance): RootStructure {
     expand(Math.cos(ha) * hl, Math.max(0, hy + Math.sin(ha) * hl), 0);
   }
 
-  return { root: tapNode, bounds, hairs };
+  return { root: tapRoot!, bounds, hairs };
 }
 
 // ══════════════════════════════════════════════════════════════════
