@@ -11,10 +11,13 @@ import { createTerrainLayer, TILE_SIZE } from './render/layers/terrainLayer';
 import { createPlantLayer, updatePlantLayer } from './render/layers/plantLayer';
 import { createCursorLayer, updateCursorLayer } from './render/layers/cursorLayer';
 import { createAtmosphereOverlay, updateAtmosphereOverlay } from './render/layers/atmosphereLayer';
-import { drawPlant } from './render/visuals/plantDrawer';
+import { drawPlant, type PlantRenderResult } from './render/visuals/plantDrawer';
+import { drawStickman } from './render/visuals/stickman';
 import { initInspector } from './ui/components/inspector';
 import { initEvolutionUI } from './ui/components/evolution';
 import { initSpeedControls } from './ui/components/speedControls';
+import { hitTestShoot, hitTestRoots, executeGrowthAction } from './interaction/manualGrowth';
+import { initOverlay, updateOverlay, flashAt, hideOverlay } from './render/visuals/growthOverlay';
 
 async function bootstrap(): Promise<void> {
   const appContainer = document.getElementById('app');
@@ -65,6 +68,94 @@ async function bootstrap(): Promise<void> {
   const rootGfx = new Graphics();
   soilApp.stage.addChild(rootGfx);
 
+  // Last render result — used by click-to-grow interaction
+  let lastRenderResult: PlantRenderResult | null = null;
+
+  // --- Growth overlay layers (hover highlights) ---
+  const airOverlayGfx = new Graphics();
+  airApp.stage.addChild(airOverlayGfx);
+  initOverlay(airOverlayGfx);
+
+  const soilOverlayGfx = new Graphics();
+  soilApp.stage.addChild(soilOverlayGfx);
+  initOverlay(soilOverlayGfx);
+
+  // --- Air Quadrant: Click-to-grow interaction ---
+  airApp.stage.eventMode = 'static';
+  airApp.stage.hitArea = { contains: () => true };
+
+  airApp.stage.on('pointermove', (e) => {
+    const sel = state.selection;
+    const plant = sel ? state.grid[sel.y][sel.x].plant : null;
+    if (!plant || !lastRenderResult) {
+      hideOverlay(airOverlayGfx);
+      return;
+    }
+    const local = e.getLocalPosition(airApp.stage);
+    const hit = hitTestShoot(local.x, local.y, plant, lastRenderResult);
+    if (hit) {
+      const canAfford = plant.energy >= hit.cost;
+      updateOverlay(airOverlayGfx, true, local.x, local.y, canAfford, hit.label);
+    } else {
+      hideOverlay(airOverlayGfx);
+    }
+  });
+
+  airApp.stage.on('pointerdown', (e) => {
+    const sel = state.selection;
+    const plant = sel ? state.grid[sel.y][sel.x].plant : null;
+    if (!plant || !lastRenderResult) return;
+    const local = e.getLocalPosition(airApp.stage);
+    const hit = hitTestShoot(local.x, local.y, plant, lastRenderResult);
+    if (hit && hit.action) {
+      if (executeGrowthAction(hit.action, hit.cost, plant)) {
+        flashAt(local.x, local.y);
+      }
+    }
+  });
+
+  airApp.stage.on('pointerleave', () => {
+    hideOverlay(airOverlayGfx);
+  });
+
+  // --- Soil Quadrant: Click-to-grow interaction ---
+  soilApp.stage.eventMode = 'static';
+  soilApp.stage.hitArea = { contains: () => true };
+
+  soilApp.stage.on('pointermove', (e) => {
+    const sel = state.selection;
+    const plant = sel ? state.grid[sel.y][sel.x].plant : null;
+    if (!plant || !lastRenderResult) {
+      hideOverlay(soilOverlayGfx);
+      return;
+    }
+    const local = e.getLocalPosition(soilApp.stage);
+    const hit = hitTestRoots(local.x, local.y, plant, lastRenderResult);
+    if (hit) {
+      const canAfford = plant.energy >= hit.cost;
+      updateOverlay(soilOverlayGfx, true, local.x, local.y, canAfford, hit.label);
+    } else {
+      hideOverlay(soilOverlayGfx);
+    }
+  });
+
+  soilApp.stage.on('pointerdown', (e) => {
+    const sel = state.selection;
+    const plant = sel ? state.grid[sel.y][sel.x].plant : null;
+    if (!plant || !lastRenderResult) return;
+    const local = e.getLocalPosition(soilApp.stage);
+    const hit = hitTestRoots(local.x, local.y, plant, lastRenderResult);
+    if (hit && hit.action) {
+      if (executeGrowthAction(hit.action, hit.cost, plant)) {
+        flashAt(local.x, local.y);
+      }
+    }
+  });
+
+  soilApp.stage.on('pointerleave', () => {
+    hideOverlay(soilOverlayGfx);
+  });
+
   // --- Map Interaction: click to select tile ---
   mapApp.stage.eventMode = 'static';
   mapApp.stage.hitArea = { contains: () => true };
@@ -113,10 +204,20 @@ async function bootstrap(): Promise<void> {
     if (selectedPlant) {
       const soilW = quadrants.soilView.clientWidth;
       const soilH = quadrants.soilView.clientHeight;
-      drawPlant(shootGfx, rootGfx, selectedPlant, state.species, airW, airH, soilW, soilH);
+      lastRenderResult = drawPlant(shootGfx, rootGfx, selectedPlant, state.species, airW, airH, soilW, soilH);
+      if (lastRenderResult) {
+        drawStickman(
+          shootGfx,
+          lastRenderResult.scale,
+          lastRenderResult.airOffsetX,
+          lastRenderResult.airOffsetY,
+          lastRenderResult.shoot.bounds.maxX,
+        );
+      }
     } else {
       shootGfx.clear();
       rootGfx.clear();
+      lastRenderResult = null;
     }
   }
 

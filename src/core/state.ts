@@ -2,6 +2,24 @@ import { GRID_WIDTH, GRID_HEIGHT } from './constants';
 import { type NutrientProfile } from './data/soil';
 import { type SpeciesGenome, BASE_STATS, computeStats } from './data/traits';
 
+export interface ManualBranch {
+  id: number;
+  heightFraction: number; // 0-1 along trunk
+  side: -1 | 1;          // Left or right
+  length: number;         // Meters
+  angle: number;          // Radians
+  seed: number;           // RNG seed for sub-branch structure
+}
+
+export interface ManualRoot {
+  id: number;
+  depthFraction: number;  // 0-1 along taproot
+  side: -1 | 1;           // Left or right
+  length: number;         // Meters
+  angle: number;          // Radians
+  seed: number;           // RNG seed for sub-lateral structure
+}
+
 export interface SpeciesInstance {
   genomeId: string;
   age: number;          // Ticks alive
@@ -25,6 +43,10 @@ export interface SpeciesInstance {
   leafColor: number;        // Current leaf color (shifts in autumn)
   dormant: boolean;         // Winter dormancy state
   lastFruitDrop: number;    // Tick when fruit last dropped (for cooldown)
+
+  // Manual growth mode — player-placed branches and roots
+  manualBranches: ManualBranch[];
+  manualRoots: ManualRoot[];
 
   // Visual DNA — per-instance random variation for procedural rendering
   phenotypeSeed: number;
@@ -115,6 +137,8 @@ export function createPlantInstance(genomeId: string): SpeciesInstance {
     leafColor: 0x2d8a4e,
     dormant: false,
     lastFruitDrop: 0,
+    manualBranches: [],
+    manualRoots: [],
     phenotypeSeed: Math.random(),
     _dbgPhotosynthesis: 0,
     _dbgRespiration: 0,

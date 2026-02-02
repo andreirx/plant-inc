@@ -127,8 +127,39 @@ export function initInspector(layout: QuadrantElements): void {
         const netSign = netEnergy >= 0 ? '+' : '';
         const netColor = netEnergy >= 0 ? '#4caf50' : '#f44336';
 
+        // Build diagnostics warnings
+        const diags: string[] = [];
+        if (p.energy < 5) {
+          diags.push('<span style="color:#f44336">&#x1F534; Critical: energy reserves depleted!</span>');
+        }
+        if (netEnergy < 0) {
+          diags.push('<span style="color:#ff9800">&#x26A0; Energy deficit — add more leaves!</span>');
+        }
+        if (cell.moisture < 0.2) {
+          diags.push('<span style="color:#ff9800">&#x26A0; Water stress — grow deeper roots!</span>');
+        }
+        const structLimit = p.trunkRadius * 350 * 0.8;
+        if (p.height > structLimit && p.height > 1) {
+          diags.push('<span style="color:#ff9800">&#x26A0; Trunk too thin — risk of collapse!</span>');
+        }
+        if (p.rootDepth < p.height * 0.3 && p.height > 1) {
+          diags.push('<span style="color:#f8d348">&#x26A0; Shallow roots — vulnerable to drought!</span>');
+        }
+        if (p.visibleLeafArea < 0.01 && !p.dormant) {
+          diags.push('<span style="color:#f8d348">&#x26A0; No leaves — cannot photosynthesize!</span>');
+        }
+
+        const isManual = p.manualBranches.length > 0 || p.manualRoots.length > 0;
+        const modeLabel = isManual
+          ? '<span style="color:#4caf50">MANUAL</span>'
+          : '<span style="color:#888">AUTO</span>';
+
+        const branchInfo = isManual
+          ? `Branches: ${p.manualBranches.length} | Roots: ${p.manualRoots.length}`
+          : `Branches: ${p.branchCount}`;
+
         bioInfo.innerHTML = [
-          '<b>BIOLOGY SCAN</b>',
+          '<b>BIOLOGY SCAN</b> ' + modeLabel,
           `Genetics: <span style="color:#f8d348">${traitNames || 'None'}</span>`,
           '',
           '<b>VITALS</b>',
@@ -146,11 +177,14 @@ export function initInspector(layout: QuadrantElements): void {
           `Roots: ${p.rootDepth.toFixed(2)}m | Leaves: ${p.leafArea.toFixed(3)}m²`,
           `Canopy: ${(p.visibleLeafArea / Math.max(p.leafArea, 0.001) * 100).toFixed(0)}%` +
             (p.dormant ? ' <span style="color:#88f">DORMANT</span>' : ''),
-          `Branches: ${p.branchCount}`,
+          branchInfo,
           p.flowering > 0
             ? `Flowering: ${(p.flowering * 100).toFixed(0)}%`
             : '',
           p.fruit > 0 ? `Fruit: ${(p.fruit * 100).toFixed(0)}%` : '',
+          diags.length > 0
+            ? '<hr style="border-color:#555;margin:4px 0"><b>DIAGNOSTICS</b><br>' + diags.join('<br>')
+            : '',
         ].join('<br>');
       } else {
         bioInfo.innerHTML = '<b>BIOLOGY SCAN</b><br>No plant selected';

@@ -259,75 +259,75 @@ function simulatePlant(
   const dynamicThreshold = Math.min(GROWTH_THRESHOLD, plant.biomass * 50 + 1);
 
   // Dormant plants do not grow — meristems are inactive
+  const isManualMode = plant.manualBranches.length > 0 || plant.manualRoots.length > 0;
+
   if (!plant.dormant && plant.energy > dynamicThreshold) {
-    // Seedlings MUST grow leaves first or they starve
-    if (plant.leafArea < 0.01) {
-      const leafInvestment = Math.min(plant.energy - dynamicThreshold, 2.0);
-      plant.leafArea += LEAF_RATE * leafInvestment * 2.0;
-      plant.rootDepth += ROOT_RATE * leafInvestment * 0.5;
-      plant.energy -= leafInvestment;
-      plant.biomass += leafInvestment * GROWTH_EFFICIENCY * 0.01;
+    if (!isManualMode) {
+      // ── AUTO GROWTH MODE ──
+      // Seedlings MUST grow leaves first or they starve
+      if (plant.leafArea < 0.01) {
+        const leafInvestment = Math.min(plant.energy - dynamicThreshold, 2.0);
+        plant.leafArea += LEAF_RATE * leafInvestment * 2.0;
+        plant.rootDepth += ROOT_RATE * leafInvestment * 0.5;
+        plant.energy -= leafInvestment;
+        plant.biomass += leafInvestment * GROWTH_EFFICIENCY * 0.01;
+      }
+
+      // Investment budget: spend a fraction of surplus
+      const surplus = plant.energy - dynamicThreshold;
+      const investment = Math.min(surplus * 0.4, 8.0); // Cap per-tick investment
+
+      // Nutrient limitation: low soil NPK throttles growth directly
+      const nutrientFactor = Math.min(
+        Math.min(soil.nutrients.nitrogen / 0.1, 1.0),     // Below 10% N → growth limited
+        Math.min(soil.nutrients.phosphorus / 0.08, 1.0),   // Below 8% P → growth limited
+      );
+
+      // Diminishing returns: growth slows as plant approaches maximum size.
+      const heightRoom = softCap(plant.height, MAX_HEIGHT);
+      const leafRoom = softCap(plant.leafArea, MAX_LEAF_AREA);
+      const rootRoom = softCap(plant.rootDepth, MAX_ROOT_DEPTH);
+      const trunkRoom = softCap(plant.trunkRadius, MAX_TRUNK_RADIUS);
+
+      // Structural constraint: height limited by trunk radius
+      const structuralHeightLimit = plant.trunkRadius * 350;
+      const structuralFactor = plant.height < structuralHeightLimit ? 1.0 :
+        Math.max(0, 1 - (plant.height - structuralHeightLimit) / 2);
+
+      const growthMod = nutrientFactor;
+
+      const waterLimited = soil.moisture < 0.2;
+      const lightLimited = climate.sunlight < 0.3;
+
+      if (waterLimited) {
+        const pBonus = 1 + pAbsorbed * 3;
+        plant.rootDepth += ROOT_RATE * investment * stats.root_growth_speed * pBonus * rootRoom * growthMod;
+        plant.height += HEIGHT_RATE * investment * 0.2 * heightRoom * structuralFactor * growthMod;
+        plant.leafArea += LEAF_RATE * investment * 0.1 * leafRoom * growthMod;
+        plant.trunkRadius += TRUNK_RATE * investment * 0.3 * trunkRoom * growthMod;
+      } else if (lightLimited) {
+        plant.height += HEIGHT_RATE * investment * 1.5 * heightRoom * structuralFactor * growthMod;
+        plant.leafArea += LEAF_RATE * investment * 1.5 * leafRoom * growthMod;
+        plant.trunkRadius += TRUNK_RATE * investment * trunkRoom * growthMod;
+      } else {
+        const nBonus = 1 + nAbsorbed * 3;
+        plant.height += HEIGHT_RATE * investment * nBonus * heightRoom * structuralFactor * growthMod;
+        plant.rootDepth += ROOT_RATE * investment * (1 + stats.root_growth_speed * 0.3) * rootRoom * growthMod;
+        plant.leafArea += LEAF_RATE * investment * nBonus * leafRoom * growthMod;
+        plant.trunkRadius += TRUNK_RATE * investment * nBonus * trunkRoom * growthMod;
+      }
+
+      plant.energy -= investment;
+      plant.biomass += investment * GROWTH_EFFICIENCY * 0.01;
+
+      // Branch count derived from height
+      plant.branchCount = Math.floor(plant.height / BRANCH_INTERVAL);
     }
-
-    // Investment budget: spend a fraction of surplus
-    const surplus = plant.energy - dynamicThreshold;
-    const investment = Math.min(surplus * 0.4, 8.0); // Cap per-tick investment
-
-    // Nutrient limitation: low soil NPK throttles growth directly
-    const nutrientFactor = Math.min(
-      Math.min(soil.nutrients.nitrogen / 0.1, 1.0),     // Below 10% N → growth limited
-      Math.min(soil.nutrients.phosphorus / 0.08, 1.0),   // Below 8% P → growth limited
-    );
-
-    // Diminishing returns: growth slows as plant approaches maximum size.
-    // Soft curve: full speed until 60% of max, then smooth taper to zero.
-    // At 50% → 0.94, at 70% → 0.75, at 90% → 0.31, at 100% → 0.
-    // (Old linear: at 50% → 0.5, at 70% → 0.3 — too aggressive)
-    const heightRoom = softCap(plant.height, MAX_HEIGHT);
-    const leafRoom = softCap(plant.leafArea, MAX_LEAF_AREA);
-    const rootRoom = softCap(plant.rootDepth, MAX_ROOT_DEPTH);
-    const trunkRoom = softCap(plant.trunkRadius, MAX_TRUNK_RADIUS);
-
-    // Structural constraint: height limited by trunk radius
-    // A thin trunk can't support a tall tree (buckling limit)
-    // Max height ≈ trunk_radius * 350 (allometric scaling — young trees are slender)
-    const structuralHeightLimit = plant.trunkRadius * 350;
-    const structuralFactor = plant.height < structuralHeightLimit ? 1.0 :
-      Math.max(0, 1 - (plant.height - structuralHeightLimit) / 2);
-
-    // Combined growth modifier
-    const growthMod = nutrientFactor;
-
-    // Determine growth strategy based on current bottleneck
-    const waterLimited = soil.moisture < 0.2;
-    const lightLimited = climate.sunlight < 0.3;
-
-    if (waterLimited) {
-      // Drought response: prioritize root growth, still grow other organs slowly
-      const pBonus = 1 + pAbsorbed * 3;
-      plant.rootDepth += ROOT_RATE * investment * stats.root_growth_speed * pBonus * rootRoom * growthMod;
-      plant.height += HEIGHT_RATE * investment * 0.2 * heightRoom * structuralFactor * growthMod;
-      plant.leafArea += LEAF_RATE * investment * 0.1 * leafRoom * growthMod;
-      plant.trunkRadius += TRUNK_RATE * investment * 0.3 * trunkRoom * growthMod;
-    } else if (lightLimited) {
-      // Shade response: etiolation — grow tall, expand leaf canopy
-      plant.height += HEIGHT_RATE * investment * 1.5 * heightRoom * structuralFactor * growthMod;
-      plant.leafArea += LEAF_RATE * investment * 1.5 * leafRoom * growthMod;
-      plant.trunkRadius += TRUNK_RATE * investment * trunkRoom * growthMod;
-    } else {
-      // Balanced growth — nitrogen fuels vegetative expansion
-      const nBonus = 1 + nAbsorbed * 3;
-      plant.height += HEIGHT_RATE * investment * nBonus * heightRoom * structuralFactor * growthMod;
-      plant.rootDepth += ROOT_RATE * investment * (1 + stats.root_growth_speed * 0.3) * rootRoom * growthMod;
-      plant.leafArea += LEAF_RATE * investment * nBonus * leafRoom * growthMod;
-      plant.trunkRadius += TRUNK_RATE * investment * nBonus * trunkRoom * growthMod;
+    // In manual mode: no auto-growth. Player controls investment via clicks.
+    // Trunk radius still grows slowly with biomass to prevent structural collapse.
+    if (isManualMode) {
+      plant.trunkRadius = Math.max(plant.trunkRadius, plant.height * 0.002 + 0.003);
     }
-
-    plant.energy -= investment;
-    plant.biomass += investment * GROWTH_EFFICIENCY * 0.01;
-
-    // Branch count derived from height
-    plant.branchCount = Math.floor(plant.height / BRANCH_INTERVAL);
   }
 
   // ═══════════════════════════════════════════════════════════════
