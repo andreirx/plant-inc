@@ -386,11 +386,12 @@ function buildShootStructure(
     const lateralFrac = (1 - leaderFrac) / lateralCount;
     const parentArea = radius * radius;
 
+    const firstSide = branchRng.next() > 0.5 ? -1 : 1;
     for (let i = 0; i < lateralCount; i++) {
       const cArea = parentArea * lateralFrac;
       const cRadius = Math.sqrt(cArea);
       const spread = branchRng.range(0.3, 0.7);
-      const side = i === 0 ? -1 : 1;
+      const side = i === 0 ? firstSide : -firstSide;
       let cAngle = angle + spread * side + branchRng.range(-0.1, 0.1);
       cAngle = Math.max(-Math.PI + Math.PI / 9, Math.min(-Math.PI / 9, cAngle));
       const cLen = length * branchRng.range(0.45, 0.65);
@@ -449,8 +450,10 @@ function buildShootStructure(
     const segRadius = trunkR * (1 - tMid * 0.4);
 
     // Per-segment RNG — stable regardless of total segment count
+    // Zigzag: alternate sign so wobble doesn't accumulate into a lean
     const segRng = new SeededRandom(plant.phenotypeSeed * 100 + seg + 1);
-    const wobbleX = segRng.range(-0.015, 0.015) * actualSegLen;
+    const wobbleMag = segRng.range(0.005, 0.015) * actualSegLen;
+    const wobbleX = (seg % 2 === 0 ? 1 : -1) * wobbleMag;
     const nextX = curX + wobbleX;
     const nextY = curY - actualSegLen;
     const midWobble = segRng.range(-0.01, 0.01) * actualSegLen;
@@ -611,11 +614,12 @@ function buildRootStructure(plant: SpeciesInstance): RootStructure {
     const latFrac = (1 - leaderFrac) / Math.max(lateralCount, 1);
     const parentArea = radius * radius;
 
+    const firstLatSide = latRng.next() > 0.5 ? -1 : 1;
     for (let i = 0; i < lateralCount; i++) {
       const cArea = parentArea * latFrac;
       const cRadius = Math.sqrt(cArea);
       const spread = latRng.range(0.35, 0.9);
-      const side = i % 2 === 0 ? -1 : 1;
+      const side = i === 0 ? firstLatSide : -firstLatSide;
       let cAngle = angle + spread * side + latRng.range(-0.15, 0.15);
       cAngle = Math.max(Math.PI / 9, Math.min(Math.PI - Math.PI / 9, cAngle));
       const cLen = length * latRng.range(0.45, 0.65);
@@ -669,9 +673,10 @@ function buildRootStructure(plant: SpeciesInstance): RootStructure {
 
     const segRadius = tapRootRadius * (1 - tMid * 0.5);
 
-    // Per-segment RNG
+    // Per-segment RNG — zigzag to prevent drift
     const segRng = new SeededRandom(plant.phenotypeSeed * 500 + seg + 1);
-    const wobbleX = segRng.range(-0.015, 0.015) * actualSegLen;
+    const wobbleMag = segRng.range(0.005, 0.015) * actualSegLen;
+    const wobbleX = (seg % 2 === 0 ? 1 : -1) * wobbleMag;
     const nextX = tapX + wobbleX;
     const nextY = tapY + actualSegLen;
     const midWobble = segRng.range(-0.01, 0.01) * actualSegLen;
