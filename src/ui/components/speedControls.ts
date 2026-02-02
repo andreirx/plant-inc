@@ -3,6 +3,7 @@
  */
 
 import { state } from '../../core/state';
+import { clearSave } from '../../core/persistence';
 import { type QuadrantElements } from '../layout';
 
 const SPEEDS = [
@@ -41,6 +42,22 @@ export function initSpeedControls(layout: QuadrantElements): void {
     buttons.push(btn);
     bar.appendChild(btn);
   }
+
+  // --- New Game button ---
+  const sep = document.createElement('div');
+  sep.style.cssText = 'width:1px;background:#555;margin:0 4px;';
+  bar.appendChild(sep);
+
+  const newGameBtn = document.createElement('button');
+  newGameBtn.textContent = 'NEW GAME';
+  newGameBtn.style.cssText = BTN_BASE + 'background:#5a1a1a;border-color:#f44336;';
+  newGameBtn.addEventListener('click', () => {
+    if (confirm('Start a new game? Current progress will be lost.')) {
+      clearSave();
+      window.location.reload();
+    }
+  });
+  bar.appendChild(newGameBtn);
 
   layout.evolutionUI.appendChild(bar);
 

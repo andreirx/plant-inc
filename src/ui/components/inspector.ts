@@ -10,6 +10,7 @@ import { BIOMES } from '../../core/data/biomes';
 import { BIOTA_DB } from '../../core/data/biota';
 import { SOIL_TYPES } from '../../core/data/soil';
 import { TRAIT_DATABASE } from '../../core/data/traits';
+import { TICKS_PER_DAY, DAYS_PER_YEAR } from '../../core/constants';
 import { type QuadrantElements } from '../layout';
 
 const PANEL_STYLE =
@@ -149,23 +150,25 @@ export function initInspector(layout: QuadrantElements): void {
           diags.push('<span style="color:#f8d348">&#x26A0; No leaves — cannot photosynthesize!</span>');
         }
 
-        const isManual = p.manualBranches.length > 0 || p.manualRoots.length > 0;
-        const modeLabel = isManual
-          ? '<span style="color:#4caf50">MANUAL</span>'
-          : '<span style="color:#888">AUTO</span>';
-
-        const branchInfo = isManual
-          ? `Branches: ${p.manualBranches.length} | Roots: ${p.manualRoots.length}`
-          : `Branches: ${p.branchCount}`;
+        const manualCount = p.manualBranches.length + p.manualRoots.length;
+        const branchInfo = `Branches: ${p.branchCount}` +
+          (manualCount > 0 ? ` (+${p.manualBranches.length} manual) | Roots: +${p.manualRoots.length} manual` : '');
 
         bioInfo.innerHTML = [
-          '<b>BIOLOGY SCAN</b> ' + modeLabel,
+          '<b>BIOLOGY SCAN</b>',
           `Genetics: <span style="color:#f8d348">${traitNames || 'None'}</span>`,
           '',
           '<b>VITALS</b>',
           bar('HP', p.health, '#f44336'),
           bar('NRG', Math.min(p.energy / 80, 1), '#f8d348'),
-          `Biomass: ${(p.biomass * 1000).toFixed(0)}g | Age: ${p.age} ticks`,
+          (() => {
+            const ticksPerYear = TICKS_PER_DAY * DAYS_PER_YEAR;
+            const ageYears = Math.floor(p.age / ticksPerYear);
+            const ageDays = Math.floor((p.age % ticksPerYear) / TICKS_PER_DAY);
+            const rings = ageYears; // One ring per year
+            return `Biomass: ${(p.biomass * 1000).toFixed(0)}g | Age: ${ageYears}y ${ageDays}d` +
+              (rings > 0 ? ` | <span style="color:#daa520">Rings: ${rings}</span>` : '');
+          })(),
           '',
           '<b>METABOLISM</b>',
           `Photo: <span style="color:#4caf50">+${p._dbgPhotosynthesis.toFixed(3)}</span>/tick`,

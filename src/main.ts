@@ -18,15 +18,19 @@ import { initEvolutionUI } from './ui/components/evolution';
 import { initSpeedControls } from './ui/components/speedControls';
 import { hitTestShoot, hitTestRoots, executeGrowthAction } from './interaction/manualGrowth';
 import { initOverlay, updateOverlay, flashAt, hideOverlay, drawShootGrowthPoints, drawRootGrowthPoints } from './render/visuals/growthOverlay';
+import { loadGame, saveGame } from './core/persistence';
 
 async function bootstrap(): Promise<void> {
   const appContainer = document.getElementById('app');
   if (!appContainer) throw new Error('Missing #app container');
 
-  // Generate the world from the state seed
-  const world = generateWorld(state.seed);
-  state.grid = world.grid;
-  state.selection = { x: world.startX, y: world.startY };
+  // Try to load a saved game; if no save or load fails, generate fresh world
+  const loaded = loadGame();
+  if (!loaded) {
+    const world = generateWorld(state.seed);
+    state.grid = world.grid;
+    state.selection = { x: world.startX, y: world.startY };
+  }
 
   // Set up the 4-quadrant layout
   const quadrants = createLayout(appContainer);
@@ -193,7 +197,15 @@ async function bootstrap(): Promise<void> {
     state.tick++;
     updateClimate(state);
     updateGrowth(state);
+
+    // Auto-save every ~30 seconds of real time (600 ticks at 20Hz)
+    if (state.tick % 600 === 0) {
+      saveGame();
+    }
   }
+
+  // Also save when the user leaves the page
+  window.addEventListener('beforeunload', () => saveGame());
 
   // Render — runs every animation frame
   function render(interpolation: number): void {

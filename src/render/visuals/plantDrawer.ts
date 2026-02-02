@@ -543,78 +543,70 @@ function buildShootStructure(
     curY = nextY;
   }
 
-  // Second pass: attach branches.
-  // Manual mode: player-placed branches override auto-generation.
-  if (plant.manualBranches.length > 0) {
-    for (const mb of plant.manualBranches) {
-      const bt = Math.min(1, Math.max(0, mb.heightFraction));
+  // Second pass: attach auto-generated branches (always rendered).
+  const branchSideFlip = Math.floor(plant.phenotypeSeed * 7) % 2 === 0 ? 1 : -1;
 
-      // Find the trunk segment containing this height
-      let tgt = trunkSegRefs[trunkSegRefs.length - 1];
-      for (const s of trunkSegRefs) {
-        if (bt >= s.t0 && bt <= s.t1) { tgt = s; break; }
-      }
+  for (let bi = 0; bi < numBranches; bi++) {
+    const bt = BRANCH_ZONE_START + (1 - BRANCH_ZONE_START) * ((bi + 0.5) / numBranches);
 
-      const localT = Math.min(1, Math.max(0, (bt - tgt.t0) / (tgt.t1 - tgt.t0)));
-      const spawnX = tgt.sx + (tgt.ex - tgt.sx) * localT;
-      const spawnY = tgt.sy + (tgt.ey - tgt.sy) * localT;
-
-      const trunkRadAtH = trunkR * (1 - bt * 0.5);
-      const branchR = Math.sqrt(trunkRadAtH * trunkRadAtH * 0.12);
-      const bRng = new SeededRandom(mb.seed);
-
-      let branchAngle = mb.angle;
-      branchAngle = Math.max(-Math.PI + Math.PI / 9, Math.min(-Math.PI / 9, branchAngle));
-
-      if (mb.length > 0.03 && branchR > 0.0005) {
-        tgt.node.children.push(
-          buildBranch(spawnX, spawnY, branchAngle, mb.length, branchR, 1, bRng),
-        );
-      }
+    let tgt = trunkSegRefs[trunkSegRefs.length - 1];
+    for (const s of trunkSegRefs) {
+      if (bt >= s.t0 && bt <= s.t1) { tgt = s; break; }
     }
-  } else {
-    // Auto mode: paired for left/right symmetry.
-    const branchSideFlip = Math.floor(plant.phenotypeSeed * 7) % 2 === 0 ? 1 : -1;
 
-    for (let bi = 0; bi < numBranches; bi++) {
-      const bt = BRANCH_ZONE_START + (1 - BRANCH_ZONE_START) * ((bi + 0.5) / numBranches);
+    const localT = Math.min(1, Math.max(0, (bt - tgt.t0) / (tgt.t1 - tgt.t0)));
+    const spawnX = tgt.sx + (tgt.ex - tgt.sx) * localT;
+    const spawnY = tgt.sy + (tgt.ey - tgt.sy) * localT;
 
-      // Find the segment containing this branch height
-      let tgt = trunkSegRefs[trunkSegRefs.length - 1];
-      for (const s of trunkSegRefs) {
-        if (bt >= s.t0 && bt <= s.t1) { tgt = s; break; }
-      }
+    const pairIdx = Math.floor(bi / 2);
+    const pairRng = new SeededRandom(plant.phenotypeSeed * 250 + pairIdx + 1);
+    const branchAreaFrac = pairRng.range(0.08, 0.2);
+    const branchLenMult = pairRng.range(0.25, 0.5);
 
-      const localT = Math.min(1, Math.max(0, (bt - tgt.t0) / (tgt.t1 - tgt.t0)));
-      const spawnX = tgt.sx + (tgt.ex - tgt.sx) * localT;
-      const spawnY = tgt.sy + (tgt.ey - tgt.sy) * localT;
+    const bRng = new SeededRandom(plant.phenotypeSeed * 200 + bi + 1);
 
-      // Pair RNG — branches in the same pair (0&1, 2&3, ...) get matching length/radius
-      const pairIdx = Math.floor(bi / 2);
-      const pairRng = new SeededRandom(plant.phenotypeSeed * 250 + pairIdx + 1);
-      const branchAreaFrac = pairRng.range(0.08, 0.2);
-      const branchLenMult = pairRng.range(0.25, 0.5);
+    const trunkRadAtH = trunkR * (1 - bt * 0.5);
+    const branchR = Math.sqrt(trunkRadAtH * trunkRadAtH * branchAreaFrac);
 
-      // Per-branch RNG — each branch still gets unique sub-branch structure
-      const bRng = new SeededRandom(plant.phenotypeSeed * 200 + bi + 1);
+    const remainingAbove = trunkH * (1 - bt);
+    const branchLen = remainingAbove * branchLenMult;
 
-      const trunkRadAtH = trunkR * (1 - bt * 0.5);
-      const branchR = Math.sqrt(trunkRadAtH * trunkRadAtH * branchAreaFrac);
+    const side = (bi % 2 === 0 ? -1 : 1) * branchSideFlip;
+    const baseSpread = 0.4 + (1 - bt) * 0.6;
+    let branchAngle = -Math.PI / 2 + side * baseSpread + bRng.range(-0.15, 0.15);
+    branchAngle = Math.max(-Math.PI + Math.PI / 9, Math.min(-Math.PI / 9, branchAngle));
 
-      const remainingAbove = trunkH * (1 - bt);
-      const branchLen = remainingAbove * branchLenMult;
+    if (branchLen > 0.03 && branchR > 0.0005) {
+      tgt.node.children.push(
+        buildBranch(spawnX, spawnY, branchAngle, branchLen, branchR, 1, bRng),
+      );
+    }
+  }
 
-      // Alternate sides; which side gets the first branch depends on seed
-      const side = (bi % 2 === 0 ? -1 : 1) * branchSideFlip;
-      const baseSpread = 0.4 + (1 - bt) * 0.6;
-      let branchAngle = -Math.PI / 2 + side * baseSpread + bRng.range(-0.15, 0.15);
-      branchAngle = Math.max(-Math.PI + Math.PI / 9, Math.min(-Math.PI / 9, branchAngle));
+  // Third pass: attach manual (player-placed) branches on top of auto branches.
+  for (const mb of plant.manualBranches) {
+    const bt = Math.min(1, Math.max(0, mb.heightFraction));
 
-      if (branchLen > 0.03 && branchR > 0.0005) {
-        tgt.node.children.push(
-          buildBranch(spawnX, spawnY, branchAngle, branchLen, branchR, 1, bRng),
-        );
-      }
+    let tgt = trunkSegRefs[trunkSegRefs.length - 1];
+    for (const s of trunkSegRefs) {
+      if (bt >= s.t0 && bt <= s.t1) { tgt = s; break; }
+    }
+
+    const localT = Math.min(1, Math.max(0, (bt - tgt.t0) / (tgt.t1 - tgt.t0)));
+    const spawnX = tgt.sx + (tgt.ex - tgt.sx) * localT;
+    const spawnY = tgt.sy + (tgt.ey - tgt.sy) * localT;
+
+    const trunkRadAtH = trunkR * (1 - bt * 0.5);
+    const branchR = Math.sqrt(trunkRadAtH * trunkRadAtH * 0.12);
+    const bRng = new SeededRandom(mb.seed);
+
+    let branchAngle = mb.angle;
+    branchAngle = Math.max(-Math.PI + Math.PI / 9, Math.min(-Math.PI / 9, branchAngle));
+
+    if (mb.length > 0.03 && branchR > 0.0005) {
+      tgt.node.children.push(
+        buildBranch(spawnX, spawnY, branchAngle, mb.length, branchR, 1, bRng),
+      );
     }
   }
 
@@ -819,82 +811,73 @@ function buildRootStructure(plant: SpeciesInstance): RootStructure {
     tapY = nextY;
   }
 
-  // Second pass: attach laterals.
-  // Manual mode: player-placed roots override auto-generation.
-  if (plant.manualRoots.length > 0) {
-    for (const mr of plant.manualRoots) {
-      const lt = Math.min(1, Math.max(0, mr.depthFraction));
+  // Second pass: attach auto-generated laterals (always rendered).
+  const rootSideFlip = Math.floor(plant.phenotypeSeed * 7) % 2 === 0 ? 1 : -1;
 
-      // Find the taproot segment containing this depth
-      let tgt = tapSegRefs[tapSegRefs.length - 1];
-      for (const s of tapSegRefs) {
-        if (lt >= s.t0 && lt <= s.t1) { tgt = s; break; }
-      }
+  for (let li = 0; li < numLaterals; li++) {
+    const lt = (li + 0.5) / numLaterals;
 
-      const localT = Math.min(1, Math.max(0, (lt - tgt.t0) / (tgt.t1 - tgt.t0)));
-      const spawnX = tgt.sx + (tgt.ex - tgt.sx) * localT;
-      const spawnY = tgt.sy + (tgt.ey - tgt.sy) * localT;
-
-      const tapRadAtD = tapRootRadius * (1 - lt * 0.5);
-      const latR = Math.sqrt(tapRadAtD * tapRadAtD * 0.12);
-      const lRng = new SeededRandom(mr.seed);
-
-      let latAngle = mr.angle;
-      latAngle = Math.max(Math.PI / 9, Math.min(Math.PI - Math.PI / 9, latAngle));
-
-      if (mr.length > 0.02 && latR > 0.0003) {
-        tgt.node.children.push(
-          buildLateral(spawnX, spawnY, latAngle, mr.length, latR, 1, lRng),
-        );
-      }
+    let tgt = tapSegRefs[tapSegRefs.length - 1];
+    for (const s of tapSegRefs) {
+      if (lt >= s.t0 && lt <= s.t1) { tgt = s; break; }
     }
-  } else {
-    // Auto mode: paired for left/right symmetry (mirrors shoot logic).
-    const rootSideFlip = Math.floor(plant.phenotypeSeed * 7) % 2 === 0 ? 1 : -1;
 
-    for (let li = 0; li < numLaterals; li++) {
-      const lt = (li + 0.5) / numLaterals;
+    const localT = Math.min(1, Math.max(0, (lt - tgt.t0) / (tgt.t1 - tgt.t0)));
+    const spawnX = tgt.sx + (tgt.ex - tgt.sx) * localT;
+    const spawnY = tgt.sy + (tgt.ey - tgt.sy) * localT;
 
-      // Find the segment containing this lateral
-      let tgt = tapSegRefs[tapSegRefs.length - 1];
-      for (const s of tapSegRefs) {
-        if (lt >= s.t0 && lt <= s.t1) { tgt = s; break; }
-      }
+    const pairIdx = Math.floor(li / 2);
+    const pairRng = new SeededRandom(plant.phenotypeSeed * 650 + pairIdx + 1);
+    const latAreaFrac = pairRng.range(0.08, 0.2);
+    const latLenMult = pairRng.range(0.5, 0.9);
 
-      const localT = Math.min(1, Math.max(0, (lt - tgt.t0) / (tgt.t1 - tgt.t0)));
-      const spawnX = tgt.sx + (tgt.ex - tgt.sx) * localT;
-      const spawnY = tgt.sy + (tgt.ey - tgt.sy) * localT;
+    const lRng = new SeededRandom(plant.phenotypeSeed * 600 + li + 1);
 
-      // Pair RNG — laterals in the same pair (0&1, 2&3, ...) get matching length/radius
-      const pairIdx = Math.floor(li / 2);
-      const pairRng = new SeededRandom(plant.phenotypeSeed * 650 + pairIdx + 1);
-      const latAreaFrac = pairRng.range(0.08, 0.2);
-      const latLenMult = pairRng.range(0.5, 0.9);
+    const tapRadAtD = tapRootRadius * (1 - lt * 0.5);
+    const latR = Math.sqrt(tapRadAtD * tapRadAtD * latAreaFrac);
 
-      // Per-lateral RNG — each lateral still gets unique sub-lateral structure
-      const lRng = new SeededRandom(plant.phenotypeSeed * 600 + li + 1);
+    const remainingBelow = rootD * (1 - lt);
+    const latLen = Math.max(rootD * 0.15, remainingBelow * latLenMult);
 
-      const tapRadAtD = tapRootRadius * (1 - lt * 0.5);
-      const latR = Math.sqrt(tapRadAtD * tapRadAtD * latAreaFrac);
+    const side = (li % 2 === 0 ? -1 : 1) * rootSideFlip;
+    const surfaceAngle = Math.PI * 0.08;
+    const deepAngle = Math.PI * 0.2;
+    const baseAngle = surfaceAngle + lt * (deepAngle - surfaceAngle);
+    let latAngle = side > 0 ? baseAngle : (Math.PI - baseAngle);
+    latAngle += lRng.range(-0.12, 0.12);
+    latAngle = Math.max(Math.PI / 9, Math.min(Math.PI - Math.PI / 9, latAngle));
 
-      // Length: proportional to remaining depth, with a minimum floor for horizontal spread
-      const remainingBelow = rootD * (1 - lt);
-      const latLen = Math.max(rootD * 0.15, remainingBelow * latLenMult);
+    if (latLen > 0.02 && latR > 0.0003) {
+      tgt.node.children.push(
+        buildLateral(spawnX, spawnY, latAngle, latLen, latR, 1, lRng),
+      );
+    }
+  }
 
-      // Angles: surface roots nearly horizontal, deep roots at 36° from horizontal
-      const side = (li % 2 === 0 ? -1 : 1) * rootSideFlip;
-      const surfaceAngle = Math.PI * 0.08; // 14° from horizontal — very wide
-      const deepAngle = Math.PI * 0.2;     // 36° from horizontal — still spreading
-      const baseAngle = surfaceAngle + lt * (deepAngle - surfaceAngle);
-      let latAngle = side > 0 ? baseAngle : (Math.PI - baseAngle);
-      latAngle += lRng.range(-0.12, 0.12);
-      latAngle = Math.max(Math.PI / 9, Math.min(Math.PI - Math.PI / 9, latAngle));
+  // Third pass: attach manual (player-placed) roots on top of auto laterals.
+  for (const mr of plant.manualRoots) {
+    const lt = Math.min(1, Math.max(0, mr.depthFraction));
 
-      if (latLen > 0.02 && latR > 0.0003) {
-        tgt.node.children.push(
-          buildLateral(spawnX, spawnY, latAngle, latLen, latR, 1, lRng),
-        );
-      }
+    let tgt = tapSegRefs[tapSegRefs.length - 1];
+    for (const s of tapSegRefs) {
+      if (lt >= s.t0 && lt <= s.t1) { tgt = s; break; }
+    }
+
+    const localT = Math.min(1, Math.max(0, (lt - tgt.t0) / (tgt.t1 - tgt.t0)));
+    const spawnX = tgt.sx + (tgt.ex - tgt.sx) * localT;
+    const spawnY = tgt.sy + (tgt.ey - tgt.sy) * localT;
+
+    const tapRadAtD = tapRootRadius * (1 - lt * 0.5);
+    const latR = Math.sqrt(tapRadAtD * tapRadAtD * 0.12);
+    const lRng = new SeededRandom(mr.seed);
+
+    let latAngle = mr.angle;
+    latAngle = Math.max(Math.PI / 9, Math.min(Math.PI - Math.PI / 9, latAngle));
+
+    if (mr.length > 0.02 && latR > 0.0003) {
+      tgt.node.children.push(
+        buildLateral(spawnX, spawnY, latAngle, mr.length, latR, 1, lRng),
+      );
     }
   }
 
