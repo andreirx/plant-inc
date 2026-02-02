@@ -37,8 +37,8 @@ import { type StatKey } from '../data/traits';
 
 // ── Photosynthesis ──────────────────────────────────────────────
 const PHOTO_BASE = 0.8;          // Glucose produced per m² leaf at full sun, per tick
-const STOMATA_CLOSE = 0.003;     // Below this water uptake, stomata fully closed
-const STOMATA_OPEN = 0.05;       // Above this water uptake, stomata fully open
+const STOMATA_CLOSE = 0.002;     // Below this water uptake, stomata fully closed
+const STOMATA_OPEN = 0.025;      // Above this water uptake, stomata fully open
 
 // ── Uptake ──────────────────────────────────────────────────────
 const WATER_UPTAKE_RATE = 0.08;  // Water units per meter root depth per tick
@@ -48,15 +48,15 @@ const NUTRIENT_UPTAKE_RATE = 0.005; // Fraction of soil nutrient absorbed per me
 const RESPIRATION_RATE = 0.02;   // Energy cost per kg biomass per tick (cellular respiration)
 
 // ── Growth ──────────────────────────────────────────────────────
-const GROWTH_THRESHOLD = 5.0;    // Minimum energy surplus before meristems activate
+const GROWTH_THRESHOLD = 3.0;    // Minimum energy surplus before meristems activate
 const GROWTH_EFFICIENCY = 0.5;   // Fraction of invested energy that becomes biomass
 const MAX_ENERGY = 80;           // Sugar storage cap (vacuole limit)
 
 const HEIGHT_RATE = 0.004;       // Meters height per unit energy invested
 const ROOT_RATE = 0.003;         // Meters root depth per unit energy invested
 const LEAF_RATE = 0.006;         // m² leaf area per unit energy invested
-const TRUNK_RATE = 0.0003;       // Trunk radius increase per unit energy invested
-const BRANCH_INTERVAL = 0.4;    // New branch every 0.4m of height
+const TRUNK_RATE = 0.0008;       // Trunk radius increase per unit energy invested
+const BRANCH_INTERVAL = 0.3;    // New branch every 0.3m of height
 
 // ── Growth limits (biological maximums) ──────────────────────────
 const MAX_HEIGHT = 25;           // Meters — tallest temperate trees
@@ -277,8 +277,8 @@ function simulatePlant(
 
     // Structural constraint: height limited by trunk radius
     // A thin trunk can't support a tall tree (buckling limit)
-    // Max height ≈ trunk_radius * 200 (allometric scaling)
-    const structuralHeightLimit = plant.trunkRadius * 200;
+    // Max height ≈ trunk_radius * 350 (allometric scaling — young trees are slender)
+    const structuralHeightLimit = plant.trunkRadius * 350;
     const structuralFactor = plant.height < structuralHeightLimit ? 1.0 :
       Math.max(0, 1 - (plant.height - structuralHeightLimit) / 2);
 

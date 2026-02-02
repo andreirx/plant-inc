@@ -104,14 +104,14 @@ export function createPlantInstance(genomeId: string): SpeciesInstance {
     health: 1.0,
     energy: 50.0,       // Starch reserve from seed endosperm
     biomass: 0.02,      // 20 grams — a germinated seed
-    height: 0.05,       // 5 cm seedling
-    trunkRadius: 0.002, // 2 mm stem
-    rootDepth: 0.05,    // 5 cm radicle
-    leafArea: 0.005,    // Cotyledons — small but functional
+    height: 0.08,       // 8 cm seedling
+    trunkRadius: 0.003, // 3 mm stem
+    rootDepth: 0.12,    // 12 cm radicle — deeper initial root breaks stomata bottleneck
+    leafArea: 0.008,    // Cotyledons — small but functional
     branchCount: 0,
     flowering: 0,
     fruit: 0,
-    visibleLeafArea: 0.005,
+    visibleLeafArea: 0.008,
     leafColor: 0x2d8a4e,
     dormant: false,
     lastFruitDrop: 0,
