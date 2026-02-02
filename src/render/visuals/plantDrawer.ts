@@ -500,7 +500,10 @@ function buildShootStructure(
     curY = nextY;
   }
 
-  // Second pass: attach branches — each gets its own per-index RNG for stability
+  // Second pass: attach branches — paired for left/right symmetry.
+  // Branches 0&1 share length/radius, 2&3 share, etc. so the tree is balanced.
+  const branchSideFlip = Math.floor(plant.phenotypeSeed * 7) % 2 === 0 ? 1 : -1;
+
   for (let bi = 0; bi < numBranches; bi++) {
     const bt = BRANCH_ZONE_START + (1 - BRANCH_ZONE_START) * ((bi + 0.5) / numBranches);
 
@@ -514,18 +517,22 @@ function buildShootStructure(
     const spawnX = tgt.sx + (tgt.ex - tgt.sx) * localT;
     const spawnY = tgt.sy + (tgt.ey - tgt.sy) * localT;
 
-    // Per-branch RNG — branch 0 always gets the same shape
+    // Pair RNG — branches in the same pair (0&1, 2&3, ...) get matching length/radius
+    const pairIdx = Math.floor(bi / 2);
+    const pairRng = new SeededRandom(plant.phenotypeSeed * 250 + pairIdx + 1);
+    const branchAreaFrac = pairRng.range(0.08, 0.2);
+    const branchLenMult = pairRng.range(0.25, 0.5);
+
+    // Per-branch RNG — each branch still gets unique sub-branch structure
     const bRng = new SeededRandom(plant.phenotypeSeed * 200 + bi + 1);
 
     const trunkRadAtH = trunkR * (1 - bt * 0.5);
-    const branchAreaFrac = bRng.range(0.08, 0.2);
     const branchR = Math.sqrt(trunkRadAtH * trunkRadAtH * branchAreaFrac);
 
     const remainingAbove = trunkH * (1 - bt);
-    const branchLen = remainingAbove * bRng.range(0.25, 0.5);
+    const branchLen = remainingAbove * branchLenMult;
 
-    // Alternate sides; which side gets the first (longest) branch depends on seed
-    const branchSideFlip = Math.floor(plant.phenotypeSeed * 7) % 2 === 0 ? 1 : -1;
+    // Alternate sides; which side gets the first branch depends on seed
     const side = (bi % 2 === 0 ? -1 : 1) * branchSideFlip;
     const baseSpread = 0.4 + (1 - bt) * 0.6;
     let branchAngle = -Math.PI / 2 + side * baseSpread + bRng.range(-0.15, 0.15);
@@ -709,7 +716,9 @@ function buildRootStructure(plant: SpeciesInstance): RootStructure {
     tapY = nextY;
   }
 
-  // Second pass: attach laterals with per-index RNG and wider angles
+  // Second pass: attach laterals — paired for left/right symmetry (mirrors shoot logic).
+  const rootSideFlip = Math.floor(plant.phenotypeSeed * 7) % 2 === 0 ? 1 : -1;
+
   for (let li = 0; li < numLaterals; li++) {
     const lt = (li + 0.5) / numLaterals;
 
@@ -723,20 +732,23 @@ function buildRootStructure(plant: SpeciesInstance): RootStructure {
     const spawnX = tgt.sx + (tgt.ex - tgt.sx) * localT;
     const spawnY = tgt.sy + (tgt.ey - tgt.sy) * localT;
 
-    // Per-lateral RNG — each lateral always gets the same shape
+    // Pair RNG — laterals in the same pair (0&1, 2&3, ...) get matching length/radius
+    const pairIdx = Math.floor(li / 2);
+    const pairRng = new SeededRandom(plant.phenotypeSeed * 650 + pairIdx + 1);
+    const latAreaFrac = pairRng.range(0.08, 0.2);
+    const latLenMult = pairRng.range(0.5, 0.9);
+
+    // Per-lateral RNG — each lateral still gets unique sub-lateral structure
     const lRng = new SeededRandom(plant.phenotypeSeed * 600 + li + 1);
 
     const tapRadAtD = tapRootRadius * (1 - lt * 0.5);
-    const latAreaFrac = lRng.range(0.08, 0.2);
     const latR = Math.sqrt(tapRadAtD * tapRadAtD * latAreaFrac);
 
     // Length: proportional to remaining depth, with a minimum floor for horizontal spread
     const remainingBelow = rootD * (1 - lt);
-    const latLen = Math.max(rootD * 0.15, remainingBelow * lRng.range(0.5, 0.9));
+    const latLen = Math.max(rootD * 0.15, remainingBelow * latLenMult);
 
     // Angles: surface roots nearly horizontal, deep roots at 36° from horizontal
-    // Alternate sides; which side gets first lateral depends on seed (mirrors shoot logic)
-    const rootSideFlip = Math.floor(plant.phenotypeSeed * 7) % 2 === 0 ? 1 : -1;
     const side = (li % 2 === 0 ? -1 : 1) * rootSideFlip;
     const surfaceAngle = Math.PI * 0.08; // 14° from horizontal — very wide
     const deepAngle = Math.PI * 0.2;     // 36° from horizontal — still spreading
