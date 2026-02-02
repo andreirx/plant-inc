@@ -288,13 +288,21 @@ function buildShootStructure(
     bounds.maxY = Math.max(bounds.maxY, y + m);
   }
 
-  /** Build a sub-branch recursively (depth >= 1). Uses per-branch RNG for stability. */
+  /** Build a sub-branch recursively (depth >= 1).
+   *  Uses branchRng ONLY for structural decisions (geometry, sub-branching).
+   *  Decoration (leaves, flowers, fruit, spikes) uses a separate decorRng
+   *  so that seasonal changes don't shift the branching structure. */
   function buildBranch(
     x: number, y: number,
     angle: number, length: number, radius: number,
     depth: number,
     branchRng: SeededRandom,
   ): BranchNode {
+    // ── Separate decoration RNG from structural RNG ──
+    // One call to seed it, then decoration never touches branchRng again.
+    const decorRng = new SeededRandom(branchRng.next() * 99999 + depth);
+
+    // ── STRUCTURAL: segment geometry ──
     const wobble = branchRng.range(-0.08, 0.08) * length;
     const perp = angle + Math.PI / 2;
     const midX = x + Math.cos(angle) * length * 0.5 + Math.cos(perp) * wobble;
@@ -313,64 +321,90 @@ function buildShootStructure(
       radius, depth, maxDepth: maxBranchDepth + 1, children: [],
     };
 
-    // Spikes on branches
+    // ── STRUCTURAL: pre-compute sub-branch parameters (stable) ──
+    let lateralCount = 0;
+    let hasLeaderBranch = false;
+    let firstSide = 1;
+    interface SubBranchParams { spread: number; jitter: number; lenMult: number }
+    const lateralParams: SubBranchParams[] = [];
+    let leaderJitter = 0;
+    let leaderLenMult = 0;
+
+    if (!isTerminal) {
+      lateralCount = 1 + Math.floor(branchRng.next() * 2);
+      hasLeaderBranch = branchRng.next() > 0.3;
+      firstSide = branchRng.next() > 0.5 ? -1 : 1;
+      for (let i = 0; i < lateralCount; i++) {
+        lateralParams.push({
+          spread: branchRng.range(0.3, 0.7),
+          jitter: branchRng.range(-0.1, 0.1),
+          lenMult: branchRng.range(0.45, 0.65),
+        });
+      }
+      if (hasLeaderBranch) {
+        leaderJitter = branchRng.range(-0.12, 0.12);
+        leaderLenMult = branchRng.range(0.45, 0.6);
+      }
+    }
+
+    // ── DECORATION: spikes (uses decorRng) ──
     if (hasSpikes && depth <= 2) {
       const n = Math.max(1, Math.floor(length / 0.3));
       for (let i = 1; i <= n; i++) {
         const t = i / (n + 1);
         const sx = x + (endX - x) * t;
         const sy = y + (endY - y) * t;
-        const side = branchRng.next() > 0.5 ? 1 : -1;
+        const side = decorRng.next() > 0.5 ? 1 : -1;
         const sa = angle + (Math.PI / 2) * side;
-        const sl = 0.05 + branchRng.next() * 0.08;
+        const sl = 0.05 + decorRng.next() * 0.08;
         spikes.push({ x: sx, y: sy, angle: sa, length: sl });
         expand(sx + Math.cos(sa) * sl, sy + Math.sin(sa) * sl, 0);
       }
     }
 
-    // Leaves along this branch — scaled by visibleLeafArea (deciduous drop)
+    // ── DECORATION: leaves (uses decorRng) ──
     const leafRatio = plant.visibleLeafArea / Math.max(plant.leafArea, 0.001);
     if (plant.visibleLeafArea > 0.0005) {
       const baseCount = Math.max(1, Math.floor(plant.leafArea * 2 / Math.max(maxBranchDepth, 1)));
       const n = Math.max(0, Math.floor(baseCount * leafRatio));
       for (let i = 0; i < n; i++) {
-        const t = branchRng.range(0.3, 1.0);
+        const t = decorRng.range(0.3, 1.0);
         const sp = radius * 3 + 0.05;
-        const lx = x + (endX - x) * t + branchRng.range(-sp, sp);
-        const ly = y + (endY - y) * t + branchRng.range(-sp, sp);
+        const lx = x + (endX - x) * t + decorRng.range(-sp, sp);
+        const ly = y + (endY - y) * t + decorRng.range(-sp, sp);
         const sz = 0.03 + Math.min(plant.leafArea * 0.005, 0.15);
-        leaves.push({ x: lx, y: ly, size: sz, shade: branchRng.range(0.7, 1.0) });
+        leaves.push({ x: lx, y: ly, size: sz, shade: decorRng.range(0.7, 1.0) });
         expand(lx, ly, sz);
       }
     }
 
-    // Terminal decorations
+    // ── DECORATION: terminal clusters, flowers, fruit (uses decorRng) ──
     if (isTerminal) {
       const cs = 0.04 + Math.min(plant.leafArea * 0.008, 0.2);
-      const baseLc = 3 + Math.floor(branchRng.next() * 4);
+      const baseLc = 3 + Math.floor(decorRng.next() * 4);
       const lc = Math.max(0, Math.floor(baseLc * leafRatio));
       for (let i = 0; i < lc; i++) {
-        const la = angle + branchRng.range(-1.0, 1.0);
-        const ld = branchRng.range(0.01, cs * 1.5);
+        const la = angle + decorRng.range(-1.0, 1.0);
+        const ld = decorRng.range(0.01, cs * 1.5);
         const lx = endX + Math.cos(la) * ld;
         const ly = endY + Math.sin(la) * ld;
-        leaves.push({ x: lx, y: ly, size: cs * 0.7, shade: branchRng.range(0.6, 1.0) });
+        leaves.push({ x: lx, y: ly, size: cs * 0.7, shade: decorRng.range(0.6, 1.0) });
         expand(lx, ly, cs);
       }
 
-      if (plant.flowering > 0.1 && branchRng.next() < plant.flowering) {
+      if (plant.flowering > 0.1 && decorRng.next() < plant.flowering) {
         const fo = cs * 0.8;
-        const fx = endX + branchRng.range(-fo, fo);
-        const fy = endY + branchRng.range(-fo, fo);
+        const fx = endX + decorRng.range(-fo, fo);
+        const fy = endY + decorRng.range(-fo, fo);
         const fs = 0.02 + plant.flowering * 0.06;
         flowers.push({ x: fx, y: fy, size: fs, progress: plant.flowering });
         expand(fx, fy, fs * 1.5);
       }
 
-      if (plant.fruit > 0.2 && branchRng.next() < plant.fruit) {
+      if (plant.fruit > 0.2 && decorRng.next() < plant.fruit) {
         const fro = cs;
-        const frx = endX + branchRng.range(-fro, fro);
-        const fry = endY + branchRng.range(0.01, fro * 1.5);
+        const frx = endX + decorRng.range(-fro, fro);
+        const fry = endY + decorRng.range(0.01, fro * 1.5);
         const frs = 0.02 + plant.fruit * 0.05;
         fruits.push({ x: frx, y: fry, size: frs, ripeness: plant.fruit });
         expand(frx, fry, frs);
@@ -379,33 +413,30 @@ function buildShootStructure(
       return node;
     }
 
-    // Sub-branches — pipe model + gravitropism
-    const lateralCount = 1 + Math.floor(branchRng.next() * 2);
-    const hasLeader = branchRng.next() > 0.3;
-    const leaderFrac = hasLeader ? 0.55 : 0;
-    const lateralFrac = (1 - leaderFrac) / lateralCount;
+    // ── STRUCTURAL: build sub-branches using pre-computed params ──
+    const leaderFrac = hasLeaderBranch ? 0.55 : 0;
+    const lateralFrac = (1 - leaderFrac) / Math.max(lateralCount, 1);
     const parentArea = radius * radius;
 
-    const firstSide = branchRng.next() > 0.5 ? -1 : 1;
     for (let i = 0; i < lateralCount; i++) {
       const cArea = parentArea * lateralFrac;
       const cRadius = Math.sqrt(cArea);
-      const spread = branchRng.range(0.3, 0.7);
+      const p = lateralParams[i];
       const side = i === 0 ? firstSide : -firstSide;
-      let cAngle = angle + spread * side + branchRng.range(-0.1, 0.1);
+      let cAngle = angle + p.spread * side + p.jitter;
       cAngle = Math.max(-Math.PI + Math.PI / 9, Math.min(-Math.PI / 9, cAngle));
-      const cLen = length * branchRng.range(0.45, 0.65);
+      const cLen = length * p.lenMult;
       if (cLen > 0.01 && cRadius > 0.0005) {
         node.children.push(buildBranch(endX, endY, cAngle, cLen, cRadius, depth + 1, branchRng));
       }
     }
 
-    if (hasLeader) {
+    if (hasLeaderBranch) {
       const lArea = parentArea * leaderFrac;
       const lRadius = Math.sqrt(lArea);
-      let lAngle = angle + branchRng.range(-0.12, 0.12);
+      let lAngle = angle + leaderJitter;
       lAngle = Math.max(-Math.PI + Math.PI / 9, Math.min(-Math.PI / 9, lAngle));
-      const lLen = length * branchRng.range(0.45, 0.6);
+      const lLen = length * leaderLenMult;
       if (lLen > 0.01 && lRadius > 0.0005) {
         node.children.push(buildBranch(endX, endY, lAngle, lLen, lRadius, depth + 1, branchRng));
       }
@@ -577,13 +608,20 @@ function buildRootStructure(plant: SpeciesInstance): RootStructure {
     bounds.maxY = Math.max(bounds.maxY, y + m);
   }
 
-  /** Build a lateral sub-root recursively (depth >= 1). Uses per-lateral RNG. */
+  /** Build a lateral sub-root recursively (depth >= 1).
+   *  Same structural/decoration RNG split as buildBranch — root hair
+   *  generation (which varies with rootDepth) uses decorRng so it
+   *  doesn't shift the sub-lateral structure. */
   function buildLateral(
     x: number, y: number,
     angle: number, length: number, radius: number,
     depth: number,
     latRng: SeededRandom,
   ): BranchNode {
+    // ── Separate decoration RNG ──
+    const decorRng = new SeededRandom(latRng.next() * 99999 + depth);
+
+    // ── STRUCTURAL: segment geometry ──
     const wobble = latRng.range(-0.12, 0.12) * length;
     const perp = angle + Math.PI / 2;
     const midX = x + Math.cos(angle) * length * 0.45 + Math.cos(perp) * wobble;
@@ -602,12 +640,38 @@ function buildRootStructure(plant: SpeciesInstance): RootStructure {
       radius, depth, maxDepth: maxSubDepth + 1, children: [],
     };
 
-    // Terminal: root hairs
+    // ── STRUCTURAL: pre-compute sub-lateral parameters (stable) ──
+    let lateralCount = 0;
+    let hasLeaderLat = false;
+    let firstLatSide = 1;
+    interface SubLatParams { spread: number; jitter: number; lenMult: number }
+    const latParams: SubLatParams[] = [];
+    let leaderJitter = 0;
+    let leaderLenMult = 0;
+
+    if (!isTerminal) {
+      lateralCount = 1 + Math.floor(latRng.next() * 2);
+      hasLeaderLat = latRng.next() > 0.3;
+      firstLatSide = latRng.next() > 0.5 ? -1 : 1;
+      for (let i = 0; i < lateralCount; i++) {
+        latParams.push({
+          spread: latRng.range(0.35, 0.9),
+          jitter: latRng.range(-0.15, 0.15),
+          lenMult: latRng.range(0.45, 0.65),
+        });
+      }
+      if (hasLeaderLat) {
+        leaderJitter = latRng.range(-0.12, 0.12);
+        leaderLenMult = latRng.range(0.45, 0.6);
+      }
+    }
+
+    // ── DECORATION: root hairs at terminal (uses decorRng) ──
     if (isTerminal) {
-      const hc = 2 + Math.floor(latRng.next() * 3) + Math.floor(Math.min(plant.rootDepth, 4));
+      const hc = 2 + Math.floor(decorRng.next() * 3) + Math.floor(Math.min(plant.rootDepth, 4));
       for (let i = 0; i < hc; i++) {
-        const ha = angle + latRng.range(-1.3, 1.3);
-        const hl = 0.01 + latRng.next() * 0.05 * Math.min(plant.rootDepth, 2);
+        const ha = angle + decorRng.range(-1.3, 1.3);
+        const hl = 0.01 + decorRng.next() * 0.05 * Math.min(plant.rootDepth, 2);
         const hx = endX + Math.cos(ha) * hl;
         const hy = Math.max(0, endY + Math.sin(ha) * hl);
         hairs.push({ x: endX, y: endY, angle: ha, length: hl });
@@ -616,33 +680,30 @@ function buildRootStructure(plant: SpeciesInstance): RootStructure {
       return node;
     }
 
-    // Sub-laterals — pipe model, downward hemisphere
-    const lateralCount = 1 + Math.floor(latRng.next() * 2);
-    const hasLeader = latRng.next() > 0.3;
-    const leaderFrac = hasLeader ? 0.5 : 0;
+    // ── STRUCTURAL: build sub-laterals using pre-computed params ──
+    const leaderFrac = hasLeaderLat ? 0.5 : 0;
     const latFrac = (1 - leaderFrac) / Math.max(lateralCount, 1);
     const parentArea = radius * radius;
 
-    const firstLatSide = latRng.next() > 0.5 ? -1 : 1;
     for (let i = 0; i < lateralCount; i++) {
       const cArea = parentArea * latFrac;
       const cRadius = Math.sqrt(cArea);
-      const spread = latRng.range(0.35, 0.9);
+      const p = latParams[i];
       const side = i === 0 ? firstLatSide : -firstLatSide;
-      let cAngle = angle + spread * side + latRng.range(-0.15, 0.15);
+      let cAngle = angle + p.spread * side + p.jitter;
       cAngle = Math.max(Math.PI / 9, Math.min(Math.PI - Math.PI / 9, cAngle));
-      const cLen = length * latRng.range(0.45, 0.65);
+      const cLen = length * p.lenMult;
       if (cLen > 0.008 && cRadius > 0.0002) {
         node.children.push(buildLateral(endX, endY, cAngle, cLen, cRadius, depth + 1, latRng));
       }
     }
 
-    if (hasLeader) {
+    if (hasLeaderLat) {
       const lArea = parentArea * leaderFrac;
       const lRadius = Math.sqrt(lArea);
-      let lAngle = angle + latRng.range(-0.12, 0.12);
+      let lAngle = angle + leaderJitter;
       lAngle = Math.max(Math.PI / 9, Math.min(Math.PI - Math.PI / 9, lAngle));
-      const lLen = length * latRng.range(0.45, 0.6);
+      const lLen = length * leaderLenMult;
       if (lLen > 0.008 && lRadius > 0.0002) {
         node.children.push(buildLateral(endX, endY, lAngle, lLen, lRadius, depth + 1, latRng));
       }
