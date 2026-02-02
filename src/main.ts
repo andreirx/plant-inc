@@ -36,11 +36,48 @@ async function bootstrap(): Promise<void> {
   // Set up the 4-quadrant layout
   const quadrants = createLayout(appContainer);
 
+  // --- Map Quadrant: coordinate panel + canvas container ---
+  const mapWrapper = document.createElement('div');
+  mapWrapper.style.cssText = 'display:flex;width:100%;height:100%;';
+
+  const coordPanel = document.createElement('div');
+  coordPanel.style.cssText =
+    'display:flex;flex-direction:column;gap:4px;padding:6px;' +
+    'background:rgba(0,0,0,0.75);font-family:monospace;font-size:11px;' +
+    'color:#e0e0e0;z-index:5;width:52px;flex-shrink:0;';
+
+  const makeInput = (label: string): HTMLInputElement => {
+    const lbl = document.createElement('div');
+    lbl.textContent = label;
+    lbl.style.cssText = 'color:#888;font-size:10px;';
+    const inp = document.createElement('input');
+    inp.type = 'number';
+    inp.min = '0';
+    inp.style.cssText =
+      'width:100%;box-sizing:border-box;background:#1a1a2e;color:#e0e0e0;' +
+      'border:1px solid #444;border-radius:2px;padding:2px 4px;' +
+      'font-family:monospace;font-size:12px;text-align:center;';
+    coordPanel.appendChild(lbl);
+    coordPanel.appendChild(inp);
+    return inp;
+  };
+
+  const xInput = makeInput('X');
+  xInput.max = String(GRID_WIDTH - 1);
+  const yInput = makeInput('Y');
+  yInput.max = String(GRID_HEIGHT - 1);
+
+  const mapCanvas = document.createElement('div');
+  mapCanvas.style.cssText = 'flex:1;min-width:0;min-height:0;position:relative;overflow:hidden;';
+
+  mapWrapper.append(coordPanel, mapCanvas);
+  quadrants.mapView.appendChild(mapWrapper);
+
   // Initialize PixiJS applications for the three visual quadrants
   const [airApp, soilApp, mapApp] = await Promise.all([
     createPixiApp(quadrants.airView),
     createPixiApp(quadrants.soilView),
-    createPixiApp(quadrants.mapView),
+    createPixiApp(mapCanvas),
   ]);
 
   // --- Map Quadrant: Layers ---
@@ -52,13 +89,30 @@ async function bootstrap(): Promise<void> {
   mapApp.stage.addChild(plantGfx);
   mapApp.stage.addChild(cursorGfx);
 
-  fitMapToView(mapApp, quadrants.mapView);
-  window.addEventListener('resize', () => fitMapToView(mapApp, quadrants.mapView));
+  fitMapToView(mapApp, mapCanvas);
+  window.addEventListener('resize', () => fitMapToView(mapApp, mapCanvas));
 
-  // Show initial cursor on the starting selection (grid center)
-  if (state.selection) {
-    updateCursorLayer(cursorGfx, state.selection.x, state.selection.y);
+  // Helper: sync selection → cursor + inputs
+  function syncSelection(tileX: number, tileY: number): void {
+    state.selection = { x: tileX, y: tileY };
+    updateCursorLayer(cursorGfx, tileX, tileY);
+    xInput.value = String(tileX);
+    yInput.value = String(tileY);
   }
+
+  // Show initial cursor on the starting selection
+  if (state.selection) {
+    syncSelection(state.selection.x, state.selection.y);
+  }
+
+  // Coordinate inputs → update selection
+  const handleCoordInput = (): void => {
+    const nx = Math.max(0, Math.min(GRID_WIDTH - 1, parseInt(xInput.value) || 0));
+    const ny = Math.max(0, Math.min(GRID_HEIGHT - 1, parseInt(yInput.value) || 0));
+    syncSelection(nx, ny);
+  };
+  xInput.addEventListener('change', handleCoordInput);
+  yInput.addEventListener('change', handleCoordInput);
 
   // --- Air Quadrant: Sky background + plant shoot in foreground ---
   const atmosphereGfx = createAtmosphereOverlay(
@@ -178,8 +232,7 @@ async function bootstrap(): Promise<void> {
     const tileY = Math.floor(local.y / TILE_SIZE);
 
     if (tileX >= 0 && tileX < GRID_WIDTH && tileY >= 0 && tileY < GRID_HEIGHT) {
-      state.selection = { x: tileX, y: tileY };
-      updateCursorLayer(cursorGfx, tileX, tileY);
+      syncSelection(tileX, tileY);
     }
   });
 
