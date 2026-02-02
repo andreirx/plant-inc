@@ -20,11 +20,9 @@ const BASE_GERMINATION_CHANCE = 0.35; // 35% base chance per seed
 const MAX_PLANTS = 500;             // Global population cap (performance)
 const DNA_PER_GERMINATION = 1;      // DNA points awarded per successful seed
 
-// ── Dispersal range by method ──
-const RANGE_GRAVITY = { min: 1, max: 2 };
-const RANGE_WIND = { min: 2, max: 6 };
-const RANGE_ANIMAL = { min: 1, max: 4 };
-const RANGE_WATER = { min: 1, max: 3 };
+// ── Dispersal range ──
+const GRAVITY_RANGE = 2;            // Base range without wind (tiles)
+const WIND_RANGE_MAX = 8;           // Max extra range from strong wind
 
 /** Count total plants on the grid. */
 function countPlants(state: SimulationState): number {
@@ -37,57 +35,57 @@ function countPlants(state: SimulationState): number {
   return count;
 }
 
-/** Get dispersal range based on method and species stats. */
-function getRange(
-  method: string,
-  dispersalStat: number,
-): { min: number; max: number } {
-  let range: { min: number; max: number };
-  switch (method) {
-    case 'wind': range = { ...RANGE_WIND }; break;
-    case 'animal': range = { ...RANGE_ANIMAL }; break;
-    case 'water': range = { ...RANGE_WATER }; break;
-    default: range = { ...RANGE_GRAVITY }; break;
-  }
-  // seed_dispersal_range stat multiplies the max range
-  const mult = Math.max(1, dispersalStat);
-  range.max = Math.round(range.max * mult);
-  range.min = Math.min(range.min, range.max);
-  return range;
-}
-
-/** Pick a random landing offset for a seed. */
+/**
+ * Pick a random landing offset for a seed.
+ *
+ * Each seed has two components:
+ *   1. Gravity drop — short range, random direction (falls near parent)
+ *   2. Wind carry — pushes seed in the current wind direction, distance
+ *      proportional to windSpeed. Stronger wind = seeds travel further.
+ *
+ * windAngle rotates slowly over time so seeds don't all go one direction forever.
+ */
 function randomOffset(
-  range: { min: number; max: number },
-  method: string,
+  dispersalStat: number,
+  windSpeed: number,
+  windAngle: number,
 ): { dx: number; dy: number } {
-  // Random angle
-  const angle = Math.random() * Math.PI * 2;
-  // Random distance within range
-  const dist = range.min + Math.random() * (range.max - range.min);
+  const rangeMult = Math.max(1, dispersalStat);
 
-  let dx = Math.round(Math.cos(angle) * dist);
-  let dy = Math.round(Math.sin(angle) * dist);
+  // 1. Gravity component — random direction, short range
+  const gravAngle = Math.random() * Math.PI * 2;
+  const gravDist = (0.5 + Math.random() * GRAVITY_RANGE) * rangeMult;
+  let dx = Math.cos(gravAngle) * gravDist;
+  let dy = Math.sin(gravAngle) * gravDist;
 
-  // Wind: bias in a consistent direction (use a pseudo-random but stable angle)
-  if (method === 'wind') {
-    const windAngle = (Math.random() < 0.5 ? 1 : -1) * (Math.PI / 6) + angle * 0.3;
-    dx = Math.round(Math.cos(windAngle) * dist);
-    dy = Math.round(Math.sin(windAngle) * dist);
-  }
+  // 2. Wind component — biased direction, distance scales with windSpeed
+  // windSpeed is typically 0.1-0.3, so multiply up for meaningful tile distance
+  const windDist = windSpeed * WIND_RANGE_MAX * rangeMult * (0.5 + Math.random() * 0.5);
+  // Add some spread (±30°) so seeds don't land in a perfect line
+  const spread = (Math.random() - 0.5) * (Math.PI / 3);
+  dx += Math.cos(windAngle + spread) * windDist;
+  dy += Math.sin(windAngle + spread) * windDist;
+
+  // Round to tile coordinates
+  const rdx = Math.round(dx);
+  const rdy = Math.round(dy);
 
   // Ensure at least 1 tile away
-  if (dx === 0 && dy === 0) dx = Math.random() < 0.5 ? 1 : -1;
+  if (rdx === 0 && rdy === 0) return { dx: Math.random() < 0.5 ? 1 : -1, dy: 0 };
 
-  return { dx, dy };
+  return { dx: rdx, dy: rdy };
 }
 
 /**
  * Run dispersal for all plants. Called once per tick after updateGrowth().
  */
 export function updateDispersal(state: SimulationState): void {
-  const { grid, species } = state;
+  const { grid, species, climate } = state;
   const dispersalStat = species.stats.seed_dispersal_range;
+
+  // Wind direction rotates slowly over time (full rotation every ~2 years)
+  // This creates natural spread patterns rather than one-directional colonization
+  const windAngle = (state.tick * 0.0003) % (Math.PI * 2);
 
   // Track new plants to add (don't modify grid while iterating)
   const newPlants: { x: number; y: number }[] = [];
@@ -127,13 +125,12 @@ export function updateDispersal(state: SimulationState): void {
       // Population cap check
       if (plantCount + newPlants.length >= MAX_PLANTS) continue;
 
-      const range = getRange('gravity', dispersalStat); // Default to gravity for now
       const seedCount = BASE_SEED_COUNT;
 
       for (let s = 0; s < seedCount; s++) {
         if (plantCount + newPlants.length >= MAX_PLANTS) break;
 
-        const { dx, dy } = randomOffset(range, 'gravity');
+        const { dx, dy } = randomOffset(dispersalStat, climate.windSpeed, windAngle);
         const tx = x + dx;
         const ty = y + dy;
 
