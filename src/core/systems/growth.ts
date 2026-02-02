@@ -286,13 +286,17 @@ function simulatePlant(
     const growthMod = nutrientFactor;
 
     // Determine growth strategy based on current bottleneck
-    const waterLimited = soil.moisture < 0.2;
+    // Use waterFactor (stomata openness) instead of raw soil moisture —
+    // a tree with deep roots tapping groundwater is NOT drought-stressed
+    // even when surface soil is bone-dry.
+    const waterLimited = waterFactor < 0.5;
     const lightLimited = climate.sunlight < 0.3;
 
     if (waterLimited) {
-      // Drought response: prioritize root growth
+      // Drought response: prioritize root growth, but still grow height/trunk slowly
       const pBonus = 1 + pAbsorbed * 3;
       plant.rootDepth += ROOT_RATE * investment * stats.root_growth_speed * pBonus * rootRoom * growthMod;
+      plant.height += HEIGHT_RATE * investment * 0.15 * heightRoom * structuralFactor * growthMod;
       plant.leafArea += LEAF_RATE * investment * 0.1 * leafRoom * growthMod;
       plant.trunkRadius += TRUNK_RATE * investment * 0.3 * trunkRoom * growthMod;
     } else if (lightLimited) {
